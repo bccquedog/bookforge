@@ -1,1 +1,1 @@
-web: cd api && python server.py
+web: cd api && python3 server.py
