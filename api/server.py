@@ -99,12 +99,16 @@ except ImportError:
 projects = {}
 
 @app.route('/api/health', methods=['GET'])
+@app.route('/health', methods=['GET'])
 def health_check():
     """Health check endpoint"""
     return jsonify({
         'status': 'healthy',
         'service': 'BookForge API',
-        'version': '1.0.0'
+        'version': '1.0.0',
+        'gemini_available': GEMINI_AVAILABLE,
+        'firebase_available': FIREBASE_AVAILABLE,
+        'openai_available': OPENAI_AVAILABLE
     })
 
 @app.route('/api/projects', methods=['POST'])
