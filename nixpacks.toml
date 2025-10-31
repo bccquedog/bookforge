@@ -1,0 +1,8 @@
+[phases.setup]
+nixPkgs = ["python311", "gcc", "pandoc"]
+
+[phases.install]
+cmds = ["cd api && pip install --upgrade pip", "cd api && pip install -r requirements.txt"]
+
+[start]
+cmd = "cd api && python server.py"
