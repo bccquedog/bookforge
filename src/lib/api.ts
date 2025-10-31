@@ -1,9 +1,7 @@
 import axios from 'axios'
-import * as mockApi from './mockApi'
 import type { CoverGenerationOptions, CoverGenerationResponse } from '../types'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE || 'http://localhost:8000'
-const USE_MOCK_API = import.meta.env.VITE_USE_MOCK_API === 'true' // Use mock API only in development
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
@@ -53,12 +51,8 @@ export interface BookConfig {
   sceneBreak: string
 }
 
-// API functions with fallback to mock
+// API functions
 export const createProject = async (config: Partial<BookConfig>): Promise<BookProject> => {
-  if (USE_MOCK_API) {
-    return mockApi.createProject(config)
-  }
-  
   try {
     const response = await api.post('/api/projects', {
       title: config.title || 'Untitled Book',
@@ -74,10 +68,6 @@ export const createProject = async (config: Partial<BookConfig>): Promise<BookPr
 }
 
 export const uploadManuscript = async (projectId: string, file: File): Promise<void> => {
-  if (USE_MOCK_API) {
-    return mockApi.uploadManuscript(projectId, file)
-  }
-  
   try {
     const formData = new FormData()
     formData.append('file', file)
@@ -94,10 +84,6 @@ export const uploadManuscript = async (projectId: string, file: File): Promise<v
 }
 
 export const buildBook = async (projectId: string): Promise<{ formats: string[] }> => {
-  if (USE_MOCK_API) {
-    return mockApi.buildBook(projectId)
-  }
-  
   try {
     const response = await api.post(`/api/projects/${projectId}/build`)
     return response.data
@@ -108,10 +94,6 @@ export const buildBook = async (projectId: string): Promise<{ formats: string[] 
 }
 
 export const getProject = async (projectId: string): Promise<BookProject> => {
-  if (USE_MOCK_API) {
-    return mockApi.getProject(projectId)
-  }
-  
   try {
     const response = await api.get(`/api/projects/${projectId}`)
     return response.data
@@ -122,10 +104,6 @@ export const getProject = async (projectId: string): Promise<BookProject> => {
 }
 
 export const getProjects = async (): Promise<BookProject[]> => {
-  if (USE_MOCK_API) {
-    return mockApi.getProjects()
-  }
-  
   try {
     const response = await api.get('/api/projects')
     return response.data
@@ -136,10 +114,6 @@ export const getProjects = async (): Promise<BookProject[]> => {
 }
 
 export const downloadBook = async (projectId: string, format: string): Promise<Blob> => {
-  if (USE_MOCK_API) {
-    return mockApi.downloadBook(projectId, format)
-  }
-  
   try {
     const response = await api.get(`/api/projects/${projectId}/download/${format}`, {
       responseType: 'blob'
@@ -152,10 +126,6 @@ export const downloadBook = async (projectId: string, format: string): Promise<B
 }
 
 export const deleteProject = async (projectId: string): Promise<void> => {
-  if (USE_MOCK_API) {
-    return mockApi.deleteProject(projectId)
-  }
-  
   try {
     await api.delete(`/api/projects/${projectId}`)
   } catch (error: any) {
@@ -168,10 +138,6 @@ export const generateCover = async (
   projectId: string, 
   options: CoverGenerationOptions
 ): Promise<CoverGenerationResponse> => {
-  if (USE_MOCK_API) {
-    return mockApi.generateCover(projectId, options)
-  }
-  
   try {
     const response = await api.post(`/api/projects/${projectId}/generate-cover`, options)
     return response.data
@@ -182,10 +148,6 @@ export const generateCover = async (
 }
 
 export const getCover = async (projectId: string): Promise<string> => {
-  if (USE_MOCK_API) {
-    return mockApi.getCover(projectId)
-  }
-  
   try {
     const response = await api.get(`/api/projects/${projectId}/cover`, {
       responseType: 'blob'
