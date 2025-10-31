@@ -1,8 +1,0 @@
-[phases.setup]
-nixPkgs = ["python311", "python311Packages.pip", "gcc", "pandoc"]
-
-[phases.install]
-cmds = ["cd api && python3 -m pip install -r requirements.txt"]
-
-[start]
-cmd = "cd api && python3 server.py"
