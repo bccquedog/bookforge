@@ -1,6 +1,8 @@
 {
   "buildCommand": "pip install -r requirements.txt",
-  "startCommand": "python server.py",
-  "rootDirectory": "api"
+  "startCommand": "python3 server.py",
+  "rootDirectory": "api",
+  "healthcheckPath": "/api/health",
+  "healthcheckTimeout": 300
 }
 
