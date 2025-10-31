@@ -2,25 +2,16 @@
 FROM python:3.11-slim
 
 # Install system dependencies for WeasyPrint and other libraries
-RUN apt-get update && apt-get install -y \
-    python3-pip \
-    python3-cffi \
-    python3-brotli \
-    libpango1.0-0 \
-    libpangoft2-1.0-0 \
-    libharfbuzz-subset0 \
-    libffi-dev \
-    libcairo2 \
-    libcairo2-dev \
-    libjpeg62-turbo-dev \
-    libgdk-pixbuf2.0-0 \
-    libgdk-pixbuf2.0-dev \
-    libgobject-2.0-0 \
-    libgobject-2.0-dev \
-    gcc \
-    pandoc \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
     python3-dev \
+    python3-pip \
+    libcairo2 \
+    libpango-1.0-0 \
+    libgdk-pixbuf2.0-0 \
+    libffi-dev \
     shared-mime-info \
+    pandoc \
     && rm -rf /var/lib/apt/lists/*
 
 # Set environment variables for library paths
