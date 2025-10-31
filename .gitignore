@@ -65,3 +65,6 @@ service-account*.json
 *.pem
 *credentials.json
 
+# Backup files
+.bak
+.bak2
