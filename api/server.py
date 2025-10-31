@@ -15,15 +15,36 @@ import base64
 import requests
 from io import BytesIO
 
-# Import the original BookForge functionality
-from bookforge import BuildConfig, build_outputs, convert_to_html
-
 app = Flask(__name__)
 CORS(app)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Import the original BookForge functionality (with error handling)
+WEASYPRINT_AVAILABLE = False
+try:
+    from bookforge import BuildConfig, build_outputs, convert_to_html
+    WEASYPRINT_AVAILABLE = True
+    logger.info("BookForge PDF generation available")
+except ImportError as e:
+    logger.warning(f"Could not import bookforge (WeasyPrint may not be available): {e}")
+    # Create minimal stubs for the types
+    class BuildConfig:
+        pass
+    def build_outputs(*args, **kwargs):
+        raise NotImplementedError("WeasyPrint not available")
+    def convert_to_html(*args, **kwargs):
+        raise NotImplementedError("WeasyPrint not available")
+except Exception as e:
+    logger.error(f"Error importing bookforge: {e}")
+    class BuildConfig:
+        pass
+    def build_outputs(*args, **kwargs):
+        raise NotImplementedError("WeasyPrint not available")
+    def convert_to_html(*args, **kwargs):
+        raise NotImplementedError("WeasyPrint not available")
 
 # OpenAI for cover generation
 try:
