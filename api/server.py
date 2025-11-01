@@ -28,17 +28,12 @@ try:
     from bookforge import BuildConfig, build_outputs, convert_to_html
     WEASYPRINT_AVAILABLE = True
     logger.info("BookForge PDF generation available")
-except ImportError as e:
-    logger.warning(f"Could not import bookforge (WeasyPrint may not be available): {e}")
-    # Create minimal stubs for the types
-    class BuildConfig:
-        pass
-    def build_outputs(*args, **kwargs):
-        raise NotImplementedError("WeasyPrint not available")
-    def convert_to_html(*args, **kwargs):
-        raise NotImplementedError("WeasyPrint not available")
 except Exception as e:
-    logger.error(f"Error importing bookforge: {e}")
+    logger.error(f"Could not import bookforge: {e}")
+    logger.error(f"Import error type: {type(e).__name__}")
+    import traceback
+    logger.error(f"Traceback: {traceback.format_exc()}")
+    # Create minimal stubs for the types
     class BuildConfig:
         pass
     def build_outputs(*args, **kwargs):
@@ -352,6 +347,8 @@ def generate_cover(project_id):
         
     except Exception as e:
         logger.error(f"Error generating cover: {str(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         return jsonify({'error': f'Failed to generate cover: {str(e)}'}), 500
 
 @app.route('/api/projects/<project_id>/cover', methods=['GET'])
@@ -575,9 +572,13 @@ def build_book(project_id):
 
     except requests.RequestException as e:
         logger.error(f"Error downloading manuscript: {str(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         return jsonify({'error': f'Failed to download manuscript: {str(e)}'}), 500
     except Exception as e:
         logger.error(f"Error building book: {str(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         return jsonify({'error': f'Failed to build book: {str(e)}'}), 500
 
 @app.route('/api/projects/<project_id>/download/<format>', methods=['GET'])
