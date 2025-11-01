@@ -576,10 +576,11 @@ def build_book(project_id):
         logger.error(f"Traceback: {traceback.format_exc()}")
         return jsonify({'error': f'Failed to download manuscript: {str(e)}'}), 500
     except Exception as e:
-        logger.error(f"Error building book: {str(e)}")
         import traceback
-        logger.error(f"Traceback: {traceback.format_exc()}")
-        return jsonify({'error': f'Failed to build book: {str(e)}'}), 500
+        error_trace = traceback.format_exc()
+        logger.error(f"Error building book: {str(e)}")
+        logger.error(f"Traceback: {error_trace}")
+        return jsonify({'error': f'Failed to build book: {str(e)}', 'trace': error_trace[-500:]}), 500
 
 @app.route('/api/projects/<project_id>/download/<format>', methods=['GET'])
 def download_book(project_id, format):
