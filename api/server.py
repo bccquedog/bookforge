@@ -47,12 +47,19 @@ except Exception as e:
         raise NotImplementedError("WeasyPrint not available")
 
 # OpenAI for cover generation
+OPENAI_AVAILABLE = False
 try:
     from openai import OpenAI
-    OPENAI_AVAILABLE = True
+    openai_key = os.environ.get('OPENAI_API_KEY')
+    if openai_key:
+        OPENAI_AVAILABLE = True
+        logger.info("OpenAI configured successfully")
+    else:
+        logger.warning("OPENAI_API_KEY not found in environment. Cover generation will be disabled.")
 except ImportError:
-    OPENAI_AVAILABLE = False
     logger.warning("OpenAI library not available. Cover generation will be disabled.")
+except Exception as e:
+    logger.error(f"Error configuring OpenAI: {e}")
 
 # Gemini AI for manuscript analysis
 GEMINI_AVAILABLE = False
@@ -470,41 +477,94 @@ Be constructive and helpful in your feedback.
 def build_book(project_id):
     """Build the book from manuscript and config"""
     try:
-        # Get manuscript URL from request body (for Firebase Storage)
-        data = request.get_json() or {}
-        manuscript_url = data.get('manuscript_url')
-
-        if not manuscript_url:
-            return jsonify({'error': 'No manuscript URL provided'}), 400
+        # Check if project exists
+        if project_id not in projects:
+            return jsonify({'error': 'Project not found'}), 404
+        
+        project = projects[project_id]
+        
+        # Get manuscript path or URL from project
+        manuscript_path = project.get('manuscript_path')
+        manuscript_url = project.get('manuscript_url')
+        
+        if not manuscript_path and not manuscript_url:
+            return jsonify({'error': 'No manuscript found. Please upload a manuscript first.'}), 400
 
         # Update status
         temp_dir = Path(tempfile.gettempdir()) / 'bookforge' / project_id
         temp_dir.mkdir(parents=True, exist_ok=True)
 
-        # Download manuscript from Firebase Storage URL
-        logger.info(f"Downloading manuscript from: {manuscript_url}")
-        response = requests.get(manuscript_url)
-        response.raise_for_status()
+        # Use local file if it exists, otherwise download from URL
+        if manuscript_path and Path(manuscript_path).exists():
+            manuscript_file = Path(manuscript_path)
+            logger.info(f"Using local manuscript: {manuscript_file}")
+        elif manuscript_url:
+            # Download manuscript from Firebase Storage URL
+            logger.info(f"Downloading manuscript from: {manuscript_url}")
+            response = requests.get(manuscript_url)
+            response.raise_for_status()
 
-        # Determine file extension from URL or content-type
-        content_disposition = response.headers.get('content-disposition', '')
-        if 'filename=' in content_disposition:
-            filename = content_disposition.split('filename=')[1].strip('"')
+            # Determine file extension from URL or content-type
+            content_disposition = response.headers.get('content-disposition', '')
+            if 'filename=' in content_disposition:
+                filename = content_disposition.split('filename=')[1].strip('"')
+            else:
+                # Try to get from URL or default to .txt
+                filename = manuscript_url.split('/')[-1].split('?')[0] or 'manuscript.txt'
+
+            manuscript_file = temp_dir / filename
+            manuscript_file.write_bytes(response.content)
+            logger.info(f"Manuscript downloaded to: {manuscript_file}")
         else:
-            # Try to get from URL or default to .txt
-            filename = manuscript_url.split('/')[-1].split('?')[0] or 'manuscript.txt'
+            return jsonify({'error': 'Manuscript not found'}), 400
 
-        manuscript_path = temp_dir / filename
-        manuscript_path.write_bytes(response.content)
-        logger.info(f"Manuscript downloaded to: {manuscript_path}")
-
-        # Create build config with default values
-        config_data = data.get('config', {})
-        config = BuildConfig(**config_data)
+        # Get config from request or project
+        data = request.get_json() or {}
+        config_data = data.get('config', project.get('config', {}))
+        
+        # Convert camelCase to snake_case for BuildConfig
+        def convert_to_snake_case(key):
+            # Convert camelCase to snake_case
+            key_map = {
+                'fontFamily': 'font_family',
+                'fontSize': 'font_size_pt',
+                'lineHeight': 'line_height',
+                'outerMargin': 'outer_margin_in',
+                'topMargin': 'top_margin_in',
+                'bottomMargin': 'bottom_margin_in',
+                'chapterStartsRight': 'chapter_starts_right',
+                'headerStyle': 'header_style',
+                'includeToc': 'include_toc',
+                'includeDedication': 'include_dedication',
+                'dedicationText': 'dedication_text',
+                'includeCopyright': 'include_copyright',
+                'copyrightYear': 'copyright_year',
+                'copyrightHolder': 'copyright_holder',
+                'includeAck': 'include_ack',
+                'ackText': 'ack_text',
+                'includeAboutAuthor': 'include_about_author',
+                'aboutAuthorText': 'about_author_text',
+                'sceneBreak': 'scene_break'
+            }
+            return key_map.get(key, key)
+        
+        # Convert config keys
+        converted_config = {convert_to_snake_case(k): v for k, v in config_data.items()}
+        
+        # Ensure required fields have defaults
+        converted_config.setdefault('title', project.get('title', 'Untitled Book'))
+        converted_config.setdefault('subtitle', '')
+        converted_config.setdefault('author', project.get('author', ''))
+        
+        config = BuildConfig(**converted_config)
 
         # Build outputs
         output_dir = temp_dir / 'output'
-        outputs = build_outputs(config, manuscript_path, output_dir)
+        outputs = build_outputs(config, manuscript_file, output_dir)
+        
+        # Store outputs in project
+        project['output_paths'] = {k: str(v) for k, v in outputs.items()}
+        project['status'] = 'completed'
 
         logger.info(f"Built book for project {project_id}")
         return jsonify({
