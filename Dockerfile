@@ -7,10 +7,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-dev \
     python3-pip \
     libcairo2 \
+    libcairo2-dev \
     libpango-1.0-0 \
+    libpango1.0-dev \
     libpangoft2-1.0-0 \
     libpangocairo-1.0-0 \
-    libgdk-pixbuf-xlib-2.0-0 \
+    libgdk-pixbuf2.0-0 \
+    libgdk-pixbuf-2.0-dev \
+    libgobject-2.0-0 \
+    libgobject-2.0-dev \
     libffi-dev \
     shared-mime-info \
     pandoc \

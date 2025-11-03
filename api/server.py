@@ -131,7 +131,8 @@ def health_check():
         'version': '1.0.0',
         'gemini_available': GEMINI_AVAILABLE,
         'firebase_available': FIREBASE_AVAILABLE,
-        'openai_available': OPENAI_AVAILABLE
+        'openai_available': OPENAI_AVAILABLE,
+        'weasyprint_available': WEASYPRINT_AVAILABLE
     })
 
 @app.route('/api/projects', methods=['POST'])
