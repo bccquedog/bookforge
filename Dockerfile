@@ -12,10 +12,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpango1.0-dev \
     libpangoft2-1.0-0 \
     libpangocairo-1.0-0 \
-    libgdk-pixbuf2.0-0 \
-    libgdk-pixbuf-2.0-dev \
-    libgobject-2.0-0 \
-    libgobject-2.0-dev \
+    libgdk-pixbuf-2.0-0 \
+    libgdk-pixbuf2.0-dev \
+    libglib2.0-0 \
+    libglib2.0-dev \
     libffi-dev \
     shared-mime-info \
     pandoc \
