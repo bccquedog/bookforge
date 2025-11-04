@@ -101,7 +101,9 @@ export function FileUpload({ onFileSelect, onTextSubmit, selectedFile }: FileUpl
                 <FileText className="w-4 h-4 text-green-600" />
                 <span className="text-sm text-green-700">{currentFile.name}</span>
                 <span className="text-xs text-green-600">
-                  ({(currentFile.size / 1024 / 1024).toFixed(1)} MB)
+                  ({currentFile.size < 1024 * 1024
+                    ? `${(currentFile.size / 1024).toFixed(1)} KB`
+                    : `${(currentFile.size / 1024 / 1024).toFixed(1)} MB`})
                 </span>
               </div>
             </div>
