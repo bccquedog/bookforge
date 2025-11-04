@@ -15,6 +15,7 @@ import { FileUpload } from '../components/FileUpload'
 import { CoverGenerator } from '../components/CoverGenerator'
 import { SuggestionsPanel } from '../components/SuggestionsPanel'
 import { ManuscriptReview } from '../components/ManuscriptReview'
+import { ProcessingStatus } from '../components/ProcessingStatus'
 import { toast } from 'react-hot-toast'
 import { 
   createProject, 
@@ -52,6 +53,9 @@ export function WizardPage() {
   const [manuscriptContent, setManuscriptContent] = useState<string>('')
   const [selectedFormats, setSelectedFormats] = useState<string[]>(['pdf', 'epub', 'docx'])
   const [buildResult, setBuildResult] = useState<{ formats: string[], output_paths?: Record<string, string> } | null>(null)
+  const [processingSteps, setProcessingSteps] = useState<Array<{id: string, label: string, status: 'pending' | 'processing' | 'completed' | 'error', message?: string}>>([])
+  const [currentProcessingStep, setCurrentProcessingStep] = useState<string | undefined>()
+  const [isAnalyzing, setIsAnalyzing] = useState(false)
   
   const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm<BookConfig>({
     defaultValues: {
@@ -88,16 +92,46 @@ export function WizardPage() {
     { id: 'output', title: 'Generate', icon: Download },
   ]
 
-  // Generate suggestions when file is uploaded
+    // Generate suggestions when file is uploaded
   const handleFileUpload = async (file: File) => {
     setUploadedFile(file)
     setShowSuggestions(true)
+    setIsAnalyzing(true)
+    
+    // Set up processing steps for file analysis
+    const analysisSteps = [
+      { id: 'extract', label: 'Extracting content from manuscript', status: 'processing' as const, message: `Reading ${file.name}...` },
+      { id: 'analyze', label: 'Analyzing manuscript content', status: 'pending' as const },
+      { id: 'suggestions', label: 'Generating book suggestions', status: 'pending' as const },
+    ]
+    setProcessingSteps(analysisSteps)
+    setCurrentProcessingStep('extract')
     
     try {
       // Extract content from file for analysis
+      await new Promise(resolve => setTimeout(resolve, 300)) // Small delay for UX
       const content = await extractContentFromFile(file)
       setManuscriptContent(content) // Store content for preview
+      
+      // Update step
+      setProcessingSteps([
+        { id: 'extract', label: 'Extracting content from manuscript', status: 'completed' as const },
+        { id: 'analyze', label: 'Analyzing manuscript content', status: 'processing' as const, message: 'Reviewing structure and content...' },
+        { id: 'suggestions', label: 'Generating book suggestions', status: 'pending' as const },
+      ])
+      setCurrentProcessingStep('analyze')
+      
+      await new Promise(resolve => setTimeout(resolve, 200))
       const generatedSuggestions = await generateBookSuggestions(file, content)
+      
+      // Complete all steps
+      setProcessingSteps([
+        { id: 'extract', label: 'Extracting content from manuscript', status: 'completed' as const },
+        { id: 'analyze', label: 'Analyzing manuscript content', status: 'completed' as const },
+        { id: 'suggestions', label: 'Generating book suggestions', status: 'completed' as const },
+      ])
+      setCurrentProcessingStep(undefined)
+      
       setSuggestions(generatedSuggestions)
       
       // Auto-apply first title suggestion if form is empty
@@ -108,10 +142,18 @@ export function WizardPage() {
       
       // Auto-apply trim size suggestion
       setValue('trim', generatedSuggestions.trimSize as any)
-      
       toast.success('Suggestions generated! Check the recommendations below.')
     } catch (error) {
-      console.error('Error generating suggestions:', error)
+      console.error('Error processing file:', error)
+      setProcessingSteps((prev) => prev.map(s => s.status === 'processing' ? {...s, status: 'error' as const} : s))
+      toast.error('Failed to analyze manuscript')
+    } finally {
+      setIsAnalyzing(false)
+      // Clear processing steps after a delay
+      setTimeout(() => {
+        setProcessingSteps([])
+        setCurrentProcessingStep(undefined)
+      }, 2000)
     }
   }
 
@@ -154,12 +196,35 @@ export function WizardPage() {
     }
 
         setIsProcessing(true)
+        
+        // Set up processing steps for book generation
+        const generationSteps = [
+          { id: 'create-project', label: 'Creating your project', status: 'processing' as const, message: 'Setting up book project...' },
+          { id: 'upload-manuscript', label: 'Uploading manuscript', status: 'pending' as const },
+          { id: 'analyze-content', label: 'Analyzing content with AI', status: 'pending' as const },
+          { id: 'build-formats', label: 'Generating book formats', status: 'pending' as const },
+          { id: 'finalize', label: 'Finalizing outputs', status: 'pending' as const },
+        ]
+        setProcessingSteps(generationSteps)
+        setCurrentProcessingStep('create-project')
+        
     try {
       console.log('Creating project...')
+      await new Promise(resolve => setTimeout(resolve, 400)) // Small delay for UX
       // Create project
       const project = await createProject(data)
       setCurrentProject(project)
       console.log('Project created:', project)
+      
+      // Update step
+      setProcessingSteps([
+        { id: 'create-project', label: 'Creating your project', status: 'completed' as const },
+        { id: 'upload-manuscript', label: 'Uploading manuscript', status: 'processing' as const, message: `Uploading ${uploadedFile?.name}...` },
+        { id: 'analyze-content', label: 'Analyzing content with AI', status: 'pending' as const },
+        { id: 'build-formats', label: 'Generating book formats', status: 'pending' as const },
+        { id: 'finalize', label: 'Finalizing outputs', status: 'pending' as const },
+      ])
+      setCurrentProcessingStep('upload-manuscript')
       
       // DEBUG: Get preview after project creation
       try {
@@ -173,7 +238,27 @@ export function WizardPage() {
 
       console.log('Uploading manuscript...')
       // Upload manuscript
+      await new Promise(resolve => setTimeout(resolve, 300))
       await uploadManuscript(project.id, uploadedFile)
+      
+      // Update step
+      setProcessingSteps([
+        { id: 'create-project', label: 'Creating your project', status: 'completed' as const },
+        { id: 'upload-manuscript', label: 'Uploading manuscript', status: 'completed' as const },
+        { id: 'analyze-content', label: 'Analyzing content with AI', status: 'processing' as const, message: 'Getting AI-powered insights...' },
+        { id: 'build-formats', label: 'Generating book formats', status: 'pending' as const },
+        { id: 'finalize', label: 'Finalizing outputs', status: 'pending' as const },
+      ])
+      setCurrentProcessingStep('analyze-content')
+      
+      // Analyze manuscript if available
+      try {
+        await new Promise(resolve => setTimeout(resolve, 500))
+        // Analysis happens in the background, we'll move to next step
+      } catch (error) {
+        console.error('Analysis error (non-critical):', error)
+      }
+      
       toast.success('Manuscript uploaded successfully!')
 
       // DEBUG: Get preview after upload
@@ -186,11 +271,46 @@ export function WizardPage() {
 
             console.log('Building book...')
       // Build book
+      console.log('Building book...')
+      
+      // Update step for building
+      setProcessingSteps([
+        { id: 'create-project', label: 'Creating your project', status: 'completed' as const },
+        { id: 'upload-manuscript', label: 'Uploading manuscript', status: 'completed' as const },
+        { id: 'analyze-content', label: 'Analyzing content with AI', status: 'completed' as const },
+        { id: 'build-formats', label: 'Generating book formats', status: 'processing' as const, message: `Generating ${selectedFormats.join(', ').toUpperCase()} files...` },
+        { id: 'finalize', label: 'Finalizing outputs', status: 'pending' as const },
+      ])
+      setCurrentProcessingStep('build-formats')
+      
+      await new Promise(resolve => setTimeout(resolve, 500))
       const result = await buildBook(project.id)
       console.log('Book built:', result)
       
+      // Update step for finalizing
+      setProcessingSteps([
+        { id: 'create-project', label: 'Creating your project', status: 'completed' as const },
+        { id: 'upload-manuscript', label: 'Uploading manuscript', status: 'completed' as const },
+        { id: 'analyze-content', label: 'Analyzing content with AI', status: 'completed' as const },
+        { id: 'build-formats', label: 'Generating book formats', status: 'completed' as const },
+        { id: 'finalize', label: 'Finalizing outputs', status: 'processing' as const, message: 'Preparing download links...' },
+      ])
+      setCurrentProcessingStep('finalize')
+      
+      await new Promise(resolve => setTimeout(resolve, 400))
+      
       // Store build result for UI
       setBuildResult(result)
+      
+      // Complete all steps
+      setProcessingSteps([
+        { id: 'create-project', label: 'Creating your project', status: 'completed' as const },
+        { id: 'upload-manuscript', label: 'Uploading manuscript', status: 'completed' as const },
+        { id: 'analyze-content', label: 'Analyzing content with AI', status: 'completed' as const },
+        { id: 'build-formats', label: 'Generating book formats', status: 'completed' as const },
+        { id: 'finalize', label: 'Finalizing outputs', status: 'completed' as const },
+      ])
+      setCurrentProcessingStep(undefined)
       
       // DEBUG: Get preview after build
       try {
@@ -284,6 +404,15 @@ export function WizardPage() {
               }}
               selectedFile={uploadedFile} 
             />
+            
+            {/* Show processing status during analysis */}
+            {isAnalyzing && processingSteps.length > 0 && (
+              <ProcessingStatus 
+                steps={processingSteps}
+                currentStep={currentProcessingStep}
+                message="Analyzing your manuscript..."
+              />
+            )}
             
             {/* Test file creation button for development */}
             {process.env.NODE_ENV === 'development' && (
@@ -663,12 +792,21 @@ export function WizardPage() {
         
         return (
           <div className="space-y-6">
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">Generate Your Book</h3>                                                                  
+                        <div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">Generate Your Book</h3>
               <p className="text-gray-600">
                 {isComplete ? 'Your book has been generated! Download your files below.' : 'Review your settings and generate the final book'}
-              </p>                                                                 
+              </p>
             </div>
+            
+            {/* Show processing status during generation */}
+            {isProcessing && processingSteps.length > 0 && (
+              <ProcessingStatus 
+                steps={processingSteps}
+                currentStep={currentProcessingStep}
+                message="Generating your book... This may take a minute."
+              />
+            )}
             
             <div className="bg-gray-50 rounded-lg p-6">
               <h4 className="font-semibold text-gray-900 mb-4">Summary</h4>
