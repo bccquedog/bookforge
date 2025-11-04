@@ -619,6 +619,7 @@ def build_book(project_id):
                 'outerMargin': 'outer_margin_in',
                 'topMargin': 'top_margin_in',
                 'bottomMargin': 'bottom_margin_in',
+                'gutter': 'gutter_in',
                 'chapterStartsRight': 'chapter_starts_right',
                 'headerStyle': 'header_style',
                 'includeToc': 'include_toc',
@@ -645,8 +646,16 @@ def build_book(project_id):
         converted_config.setdefault('author', project.get('author', ''))
         
         logger.info(f"[BUILD] Creating BuildConfig with WEASYPRINT_AVAILABLE={WEASYPRINT_AVAILABLE}")
-        config = BuildConfig(**converted_config)
-        logger.info(f"[BUILD] BuildConfig created successfully")
+        logger.info(f"[BUILD] Config keys being passed: {list(converted_config.keys())}")
+        try:
+            config = BuildConfig(**converted_config)
+            logger.info(f"[BUILD] BuildConfig created successfully")
+        except TypeError as e:
+            logger.error(f"[BUILD] Failed to create BuildConfig: {str(e)}")
+            logger.error(f"[BUILD] This usually means a required field is missing or an invalid field was provided")
+            import traceback
+            logger.error(f"[BUILD] Traceback: {traceback.format_exc()}")
+            return jsonify({'error': f'Invalid configuration: {str(e)}'}), 400
 
         # Build outputs
         output_dir = temp_dir / 'output'
