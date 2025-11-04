@@ -30,6 +30,18 @@ export interface BookConfig {
   coverStyle?: string
   coverDescription?: string
   coverTheme?: string
+  colorPalette?: string
+  visualStyle?: string
+  mood?: string
+}
+
+export interface CoverGenerationOptions {
+  style?: string
+  description?: string
+  theme?: string
+  colorPalette?: string
+  visualStyle?: string
+  mood?: string
 }
 
 export interface BookProject {

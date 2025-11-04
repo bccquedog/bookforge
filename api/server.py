@@ -345,40 +345,144 @@ def generate_cover(project_id):
         author = project.get('author', '')
         subtitle = project.get('config', {}).get('subtitle', '')
         
-        # Get cover generation options
+                # Get cover generation options
         cover_style = data.get('style', 'modern')
         cover_description = data.get('description', '')
         cover_theme = data.get('theme', 'professional')
+        color_palette = data.get('colorPalette', 'auto')
+        visual_style = data.get('visualStyle', 'illustrated')  # illustrated, photographic, mixed
+        mood = data.get('mood', 'neutral')  # neutral, energetic, calm, dramatic, mysterious, warm
         
-        # Build the prompt for DALL-E
+        # Build the prompt for DALL-E with enhanced structure
         prompt_parts = []
         
-        # Style guidance
+        # Comprehensive style guidance with more detail
         style_guides = {
-            'modern': 'modern, minimalist design with clean typography',
-            'classic': 'classic book cover design with elegant typography',
-            'fantasy': 'epic fantasy art style with dramatic lighting',
-            'mystery': 'dark, moody atmosphere with mysterious elements',
-            'romance': 'romantic, warm colors with elegant design',
-            'sci-fi': 'futuristic, high-tech design with space elements',
-            'non-fiction': 'professional, informative design with clear layout'
+            'modern': {
+                'base': 'modern minimalist book cover design',
+                'details': 'clean typography, ample white space, geometric shapes, contemporary aesthetic',
+                'colors': 'bold contrasting colors or monochromatic palette'
+            },
+            'classic': {
+                'base': 'classic elegant book cover design',
+                'details': 'traditional typography, ornate borders or frames, timeless aesthetic',
+                'colors': 'rich deep colors, gold accents, vintage color palette'
+            },
+            'fantasy': {
+                'base': 'epic fantasy book cover artwork',
+                'details': 'dramatic lighting, mythical creatures or magical elements, epic landscapes, detailed illustration',
+                'colors': 'vibrant colors with deep shadows, mystical lighting effects'
+            },
+            'mystery': {
+                'base': 'dark atmospheric mystery book cover',
+                'details': 'moody shadows, mysterious silhouettes, noir aesthetic, intriguing details',
+                'colors': 'dark color palette with dramatic contrast, noir black and white with accent colors'
+            },
+            'romance': {
+                'base': 'romantic elegant book cover design',
+                'details': 'soft flowing elements, elegant typography, warm intimate atmosphere',
+                'colors': 'warm romantic colors, pastels, soft gradients, rose and cream tones'
+            },
+            'sci-fi': {
+                'base': 'futuristic sci-fi book cover design',
+                'details': 'high-tech elements, space themes, futuristic architecture, sleek design',
+                'colors': 'cool high-tech colors, neon accents, metallic surfaces, space blues and purples'
+            },
+            'non-fiction': {
+                'base': 'professional informative book cover',
+                'details': 'clear hierarchy, readable typography, professional layout, informative imagery',
+                'colors': 'professional color scheme, clean and organized, business-appropriate'
+            },
+            'thriller': {
+                'base': 'high-tension thriller book cover',
+                'details': 'dynamic composition, action elements, intense atmosphere, gripping imagery',
+                'colors': 'high contrast, bold colors, dramatic shadows, tension-building palette'
+            },
+            'historical': {
+                'base': 'vintage historical book cover design',
+                'details': 'period-appropriate aesthetic, antique elements, classic typography, timeless design',
+                'colors': 'vintage color palette, sepia tones, aged paper aesthetic, historical colors'
+            },
+            'horror': {
+                'base': 'chilling horror book cover',
+                'details': 'dark atmosphere, unsettling imagery, gothic elements, haunting aesthetic',
+                'colors': 'dark menacing colors, blood red accents, deep shadows, eerie lighting'
+            },
+            'business': {
+                'base': 'professional business book cover',
+                'details': 'corporate design, clean modern layout, professional imagery, authoritative',
+                'colors': 'corporate blues and grays, professional color scheme, business-appropriate'
+            },
+            'self-help': {
+                'base': 'inspiring self-help book cover',
+                'details': 'uplifting imagery, positive energy, motivational elements, approachable design',
+                'colors': 'bright inspiring colors, optimistic palette, energetic tones'
+            }
         }
         
-        style_desc = style_guides.get(cover_style, style_guides['modern'])
+        style_info = style_guides.get(cover_style, style_guides['modern'])
         
-        # Build full prompt
-        prompt = f"A professional book cover for '{title}'"
+        # Color palette overrides
+        color_palettes = {
+            'warm': 'warm color palette with oranges, reds, and yellows',
+            'cool': 'cool color palette with blues, greens, and purples',
+            'monochrome': 'monochromatic color scheme in black, white, and grays',
+            'bold': 'vibrant bold colors with high saturation and contrast',
+            'pastel': 'soft pastel color palette with gentle tones',
+            'dark': 'dark moody color palette with deep shadows',
+            'bright': 'bright cheerful color palette with high energy',
+            'auto': style_info['colors']  # Use style default
+        }
+        
+        # Visual style modifiers
+        visual_styles = {
+            'illustrated': 'hand-drawn or digital illustration style, artistic rendering',
+            'photographic': 'high-quality photography with professional lighting and composition',
+            'mixed': 'combination of photography and illustration elements, photorealistic mixed media',
+            'graphic': 'graphic design elements, abstract shapes, typography-focused',
+            'painterly': 'painterly artistic style, brushstroke textures, artistic interpretation'
+        }
+        
+        # Mood modifiers
+        mood_descriptors = {
+            'energetic': 'dynamic energetic atmosphere with movement and action',
+            'calm': 'peaceful serene atmosphere with tranquil elements',
+            'dramatic': 'dramatic intense atmosphere with strong emotional impact',
+            'mysterious': 'mysterious enigmatic atmosphere with intrigue and suspense',
+            'warm': 'warm inviting atmosphere with friendly welcoming feeling',
+            'neutral': ''  # No mood modifier
+        }
+        
+        # Build comprehensive prompt
+        prompt = f"Professional book cover design for the book '{title}'"
+        
         if subtitle:
-            prompt += f" with subtitle '{subtitle}'"
+            prompt += f", subtitled '{subtitle}'"
         if author:
-            prompt += f" by {author}"
+            prompt += f", written by {author}"
         
-        prompt += f". {style_desc}"
+        prompt += f". {style_info['base']}, {style_info['details']}"
         
+        # Add visual style
+        prompt += f". Style: {visual_styles.get(visual_style, visual_styles['illustrated'])}"
+        
+        # Add color palette
+        color_desc = color_palettes.get(color_palette, color_palettes['auto'])
+        prompt += f". Color scheme: {color_desc}"
+        
+        # Add mood if specified
+        if mood != 'neutral':
+            prompt += f". Mood: {mood_descriptors.get(mood, '')}"
+        
+        # Add custom description
         if cover_description:
-            prompt += f". {cover_description}"
+            prompt += f". Additional details: {cover_description}"
         
-        prompt += ". High quality, professional book cover design, suitable for print publishing. Include space for title and author name at the top."
+        # Professional book cover requirements
+        prompt += ". High-quality professional book cover design suitable for print publishing. "
+        prompt += "The design should have a clear focal point, excellent composition, and professional typography area at the top for title and author. "
+        prompt += "The cover should be visually striking and appropriate for bookstore display. "
+        prompt += "Do not include any text overlay - leave space for title and author name to be added later."
         
         # Generate image using OpenAI DALL-E
         api_key = os.environ.get('OPENAI_API_KEY')
@@ -387,12 +491,30 @@ def generate_cover(project_id):
         
         client = OpenAI(api_key=api_key)
         
-        # Generate image (1024x1024 for square covers, we'll resize later)
+        # Get trim size for aspect ratio
+        trim = project.get('config', {}).get('trim', '6x9')
+        trim_dimensions = {
+            '5x8': {'width': 5, 'height': 8},
+            '5.5x8.5': {'width': 5.5, 'height': 8.5},
+            '6x9': {'width': 6, 'height': 9},
+            '8.5x11': {'width': 8.5, 'height': 11}
+        }
+        
+        # Calculate aspect ratio for book cover (front cover only, not full spread)
+        trim_info = trim_dimensions.get(trim, trim_dimensions['6x9'])
+        aspect_ratio = trim_info['width'] / trim_info['height']
+        
+        # DALL-E 3 supports: 1024x1024 (1:1), 1024x1792 (portrait), 1792x1024 (landscape)
+        # For book covers, we want portrait orientation
+        # Use 1024x1792 for most books (approximately 9:16 aspect ratio)
+        size = "1024x1792"  # Portrait orientation for book covers
+        
+        # Generate image with HD quality for better results
         response = client.images.generate(
             model="dall-e-3",
             prompt=prompt,
-            size="1024x1024",
-            quality="standard",
+            size=size,
+            quality="hd",  # Use HD quality for better detail and resolution
             n=1,
         )
         

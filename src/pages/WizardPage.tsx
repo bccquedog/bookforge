@@ -50,6 +50,8 @@ export function WizardPage() {
   const [suggestions, setSuggestions] = useState<BookSuggestions | null>(null)
   const [showSuggestions, setShowSuggestions] = useState(true)
   const [manuscriptContent, setManuscriptContent] = useState<string>('')
+  const [selectedFormats, setSelectedFormats] = useState<string[]>(['pdf', 'epub', 'docx'])
+  const [buildResult, setBuildResult] = useState<{ formats: string[], output_paths?: Record<string, string> } | null>(null)
   
   const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm<BookConfig>({
     defaultValues: {
@@ -182,25 +184,31 @@ export function WizardPage() {
         console.error('Debug after upload failed:', debugError)
       }
 
-      console.log('Building book...')
+            console.log('Building book...')
       // Build book
       const result = await buildBook(project.id)
       console.log('Book built:', result)
       
+      // Store build result for UI
+      setBuildResult(result)
+      
       // DEBUG: Get preview after build
       try {
         const debugAfterBuild = await debugProject(project.id)
-        console.log('🔍 DEBUG AFTER BUILD:', JSON.stringify(debugAfterBuild, null, 2))
+        console.log('🔍 DEBUG AFTER BUILD:', JSON.stringify(debugAfterBuild, null, 2))                                                                          
       } catch (debugError) {
         console.error('Debug after build failed:', debugError)
       }
       
-      toast.success(`Book generated successfully! Available formats: ${result.formats.join(', ')}`)                                                             
+      toast.success(`Book generated successfully! Available formats: ${result.formats.join(', ').toUpperCase()}`)                                                             
 
-      // Update project status
+      // Update project status - get fresh project data with output_paths
       const updatedProject = await getProject(project.id)
       setCurrentProject(updatedProject)
       console.log('Final project:', updatedProject)
+      
+      // Move to completion view automatically
+      // (We'll show download options in the same step)
 
     } catch (error: any) {
       console.error('Error processing book:', error)
@@ -648,12 +656,18 @@ export function WizardPage() {
           </div>
         )
       
-      case 5:
+            case 5:
+        // Check if build is complete (either from buildResult or project output_paths)
+        const isComplete = buildResult?.formats && buildResult.formats.length > 0
+        const availableFormats = buildResult?.formats || currentProject?.formats || []
+        
         return (
           <div className="space-y-6">
             <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">Generate Your Book</h3>
-              <p className="text-gray-600">Review your settings and generate the final book</p>
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">Generate Your Book</h3>                                                                  
+              <p className="text-gray-600">
+                {isComplete ? 'Your book has been generated! Download your files below.' : 'Review your settings and generate the final book'}
+              </p>                                                                 
             </div>
             
             <div className="bg-gray-50 rounded-lg p-6">
@@ -677,60 +691,108 @@ export function WizardPage() {
               </div>
             </div>
 
-            {currentProject?.status === 'completed' && currentProject.formats && currentProject.formats.length > 0 && (
-              <div className="bg-green-50 border border-green-200 rounded-lg p-6">
-                <h4 className="font-semibold text-green-900 mb-4 flex items-center">
-                  <CheckCircle className="w-5 h-5 mr-2" />
+            {/* Completion/Download Section */}
+            {isComplete && availableFormats.length > 0 && currentProject && (
+              <div className="bg-green-50 border-2 border-green-300 rounded-lg p-6">                                                                              
+                <h4 className="font-semibold text-green-900 mb-4 flex items-center text-lg">                                                                            
+                  <CheckCircle className="w-6 h-6 mr-2" />
                   Book Generated Successfully!
                 </h4>
-                <p className="text-green-700 mb-4">Your book has been formatted and is ready for download.</p>
-                <div className="flex flex-wrap gap-3">
-                  {currentProject.formats.map((format) => (
+                <p className="text-green-700 mb-6">Your book has been formatted and is ready for download in the following formats:</p>                                                  
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {availableFormats.map((format) => (
                     <button
                       key={format}
                       onClick={async () => {
                         try {
-                          console.log(`Downloading ${format} for project ${currentProject.id}`)
-                          const blob = await downloadBook(currentProject.id, format)
-                          console.log(`Received blob:`, blob.type, blob.size, 'bytes')
-                          downloadFile(blob, `${currentProject.title}.${format}`)
-                          toast.success(`${format.toUpperCase()} downloaded successfully!`)
+                          console.log(`Downloading ${format} for project ${currentProject.id}`)                                                                 
+                          const blob = await downloadBook(currentProject.id, format)                                                                            
+                          console.log(`Received blob:`, blob.type, blob.size, 'bytes')                                                                          
+                          downloadFile(blob, `${currentProject.title || 'book'}.${format}`)                                                                               
+                          toast.success(`${format.toUpperCase()} downloaded successfully!`)                                                                     
                         } catch (error: any) {
                           console.error(`Failed to download ${format}:`, error)
-                          toast.error(`Failed to download ${format.toUpperCase()}: ${error.message}`)
+                          toast.error(`Failed to download ${format.toUpperCase()}: ${error.message || 'Unknown error'}`)                                                           
                         }
                       }}
-                      className="btn-primary flex items-center space-x-2"
+                      className="bg-white hover:bg-green-50 border-2 border-green-300 rounded-lg p-4 flex flex-col items-center space-y-2 transition-colors"
                     >
-                      <Download className="w-4 h-4" />
-                      <span>Download {format.toUpperCase()}</span>
+                      <Download className="w-6 h-6 text-green-600" />
+                      <span className="font-semibold text-green-900">{format.toUpperCase()}</span>
+                      <span className="text-xs text-gray-600">
+                        {format === 'pdf' ? 'Print-ready' : format === 'epub' ? 'E-reader' : 'Editable'}
+                      </span>
                     </button>
                   ))}
+                </div>
+                <div className="mt-6 pt-6 border-t border-green-200">
+                  <button
+                    onClick={() => {
+                      setBuildResult(null)
+                      setCurrentStep(0)
+                      setCurrentProject(null)
+                      setUploadedFile(null)
+                    }}
+                    className="text-sm text-green-700 hover:text-green-900 underline"
+                  >
+                    Create Another Book
+                  </button>
                 </div>
               </div>
             )}
             
-            {!isProcessing && currentProject?.status !== 'completed' && uploadedFile && (
-              <div className="bg-primary-50 border border-primary-200 rounded-lg p-6">
-                <h4 className="font-semibold text-primary-900 mb-2">Ready to Generate</h4>
+            {/* Format Selection & Generate Button */}
+            {!isProcessing && !isComplete && uploadedFile && currentProject && (
+              <div className="bg-primary-50 border border-primary-200 rounded-lg p-6">                                                                          
+                <h4 className="font-semibold text-primary-900 mb-4">Select Output Formats</h4>
                 <p className="text-sm text-primary-700 mb-4">
-                  Review your settings above and click "Generate Book" below to create your formatted book files.
+                  Choose which formats you'd like to generate. All formats are recommended for maximum compatibility.
                 </p>
+                <div className="grid grid-cols-3 gap-4 mb-6">
+                  {['pdf', 'epub', 'docx'].map((format) => (
+                    <label
+                      key={format}
+                      className={`cursor-pointer border-2 rounded-lg p-4 text-center transition-colors ${
+                        selectedFormats.includes(format)
+                          ? 'border-primary-600 bg-primary-100'
+                          : 'border-gray-300 bg-white hover:border-gray-400'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedFormats.includes(format)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedFormats([...selectedFormats, format])
+                          } else {
+                            setSelectedFormats(selectedFormats.filter(f => f !== format))
+                          }
+                        }}
+                        className="sr-only"
+                      />
+                      <div className="font-bold text-lg mb-1">{format.toUpperCase()}</div>
+                      <div className="text-xs text-gray-600">
+                        {format === 'pdf' ? 'Print-ready' : format === 'epub' ? 'E-reader' : 'Editable'}
+                      </div>
+                    </label>
+                  ))}
+                </div>
                 <button
                   onClick={handleSubmit(onSubmit)}
-                  disabled={isProcessing || !uploadedFile}
-                  className="btn-primary w-full sm:w-auto flex items-center justify-center space-x-2"
+                  disabled={isProcessing || !uploadedFile || selectedFormats.length === 0}
+                  className="btn-primary w-full sm:w-auto flex items-center justify-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"                                                           
                 >
                   <Download className="w-5 h-5" />
-                  <span>Generate Book</span>
+                  <span>Generate Book{selectedFormats.length > 0 ? ` (${selectedFormats.length} format${selectedFormats.length > 1 ? 's' : ''})` : ''}</span>
                 </button>
               </div>
             )}
             
             {isProcessing && (
-              <div className="text-center py-8">
-                <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
-                <p className="mt-2 text-gray-600">Processing your book...</p>
+              <div className="text-center py-12">
+                <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mb-4"></div>                                            
+                <p className="text-lg font-medium text-gray-900">Processing your book...</p>
+                <p className="text-sm text-gray-600 mt-2">This may take a minute. Please don't close this page.</p>
               </div>
             )}
           </div>

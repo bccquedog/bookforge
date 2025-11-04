@@ -20,6 +20,39 @@ const COVER_STYLES = [
   { value: 'romance', label: 'Romance', description: 'Romantic, warm colors' },
   { value: 'sci-fi', label: 'Sci-Fi', description: 'Futuristic, high-tech design' },
   { value: 'non-fiction', label: 'Non-Fiction', description: 'Professional, informative design' },
+  { value: 'thriller', label: 'Thriller', description: 'High-tension, gripping design' },
+  { value: 'historical', label: 'Historical', description: 'Vintage, period-appropriate design' },
+  { value: 'horror', label: 'Horror', description: 'Chilling, dark atmosphere' },
+  { value: 'business', label: 'Business', description: 'Professional corporate design' },
+  { value: 'self-help', label: 'Self-Help', description: 'Inspiring, uplifting design' },
+] as const
+
+const COLOR_PALETTES = [
+  { value: 'auto', label: 'Auto', description: 'Style-appropriate colors' },
+  { value: 'warm', label: 'Warm', description: 'Oranges, reds, yellows' },
+  { value: 'cool', label: 'Cool', description: 'Blues, greens, purples' },
+  { value: 'monochrome', label: 'Monochrome', description: 'Black, white, grays' },
+  { value: 'bold', label: 'Bold', description: 'Vibrant, high contrast' },
+  { value: 'pastel', label: 'Pastel', description: 'Soft, gentle tones' },
+  { value: 'dark', label: 'Dark', description: 'Moody, deep shadows' },
+  { value: 'bright', label: 'Bright', description: 'Cheerful, high energy' },
+] as const
+
+const VISUAL_STYLES = [
+  { value: 'illustrated', label: 'Illustrated', description: 'Hand-drawn or digital art' },
+  { value: 'photographic', label: 'Photographic', description: 'High-quality photography' },
+  { value: 'mixed', label: 'Mixed Media', description: 'Combination of photo and illustration' },
+  { value: 'graphic', label: 'Graphic Design', description: 'Abstract shapes, typography-focused' },
+  { value: 'painterly', label: 'Painterly', description: 'Artistic brushstroke style' },
+] as const
+
+const MOODS = [
+  { value: 'neutral', label: 'Neutral', description: 'Balanced atmosphere' },
+  { value: 'energetic', label: 'Energetic', description: 'Dynamic with movement' },
+  { value: 'calm', label: 'Calm', description: 'Peaceful and serene' },
+  { value: 'dramatic', label: 'Dramatic', description: 'Intense emotional impact' },
+  { value: 'mysterious', label: 'Mysterious', description: 'Enigmatic and intriguing' },
+  { value: 'warm', label: 'Warm', description: 'Inviting and friendly' },
 ] as const
 
 export function CoverGenerator({ 
@@ -29,10 +62,14 @@ export function CoverGenerator({
   subtitle,
   onCoverGenerated 
 }: CoverGeneratorProps) {
-  const [selectedStyle, setSelectedStyle] = useState<CoverGenerationOptions['style']>('modern')
+  const [selectedStyle, setSelectedStyle] = useState<string>('modern')
+  const [colorPalette, setColorPalette] = useState<string>('auto')
+  const [visualStyle, setVisualStyle] = useState<string>('illustrated')
+  const [mood, setMood] = useState<string>('neutral')
   const [description, setDescription] = useState('')
   const [generatedCover, setGeneratedCover] = useState<string | null>(null)
   const [isGenerating, setIsGenerating] = useState(false)
+  const [showAdvanced, setShowAdvanced] = useState(false)
 
   const handleGenerate = async () => {
     if (!title || !author) {
@@ -44,7 +81,10 @@ export function CoverGenerator({
     try {
       const response = await generateCover(projectId, {
         style: selectedStyle,
-        description: description.trim() || `${title} by ${author}${subtitle ? ` - ${subtitle}` : ''}`,
+        colorPalette: colorPalette,
+        visualStyle: visualStyle,
+        mood: mood,
+        description: description.trim(),                                                          
       })
 
       setGeneratedCover(response.cover_url)
@@ -92,16 +132,16 @@ export function CoverGenerator({
         </div>
       </div>
 
-      {/* Style Selection */}
+            {/* Style Selection */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-3">
           Cover Style
         </label>
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
           {COVER_STYLES.map((style) => (
             <button
               key={style.value}
-              onClick={() => setSelectedStyle(style.value as CoverGenerationOptions['style'])}
+              onClick={() => setSelectedStyle(style.value)}
               className={`p-3 rounded-lg border-2 text-left transition-all ${
                 selectedStyle === style.value
                   ? 'border-primary-600 bg-primary-50'
@@ -115,20 +155,105 @@ export function CoverGenerator({
         </div>
       </div>
 
+      {/* Advanced Options Toggle */}
+      <div>
+        <button
+          onClick={() => setShowAdvanced(!showAdvanced)}
+          className="text-sm text-primary-600 hover:text-primary-700 font-medium flex items-center space-x-1"
+        >
+          <span>{showAdvanced ? 'Hide' : 'Show'} Advanced Options</span>
+          <span>{showAdvanced ? '−' : '+'}</span>
+        </button>
+      </div>
+
+      {/* Advanced Options */}
+      {showAdvanced && (
+        <div className="space-y-4 border-t pt-4">
+          {/* Visual Style */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-3">
+              Visual Style
+            </label>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              {VISUAL_STYLES.map((style) => (
+                <button
+                  key={style.value}
+                  onClick={() => setVisualStyle(style.value)}
+                  className={`p-3 rounded-lg border-2 text-left transition-all ${
+                    visualStyle === style.value
+                      ? 'border-primary-600 bg-primary-50'
+                      : 'border-gray-200 hover:border-gray-300'
+                  }`}
+                >
+                  <div className="font-medium text-sm text-gray-900">{style.label}</div>
+                  <div className="text-xs text-gray-500 mt-1">{style.description}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Color Palette */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-3">
+              Color Palette
+            </label>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {COLOR_PALETTES.map((palette) => (
+                <button
+                  key={palette.value}
+                  onClick={() => setColorPalette(palette.value)}
+                  className={`p-3 rounded-lg border-2 text-left transition-all ${
+                    colorPalette === palette.value
+                      ? 'border-primary-600 bg-primary-50'
+                      : 'border-gray-200 hover:border-gray-300'
+                  }`}
+                >
+                  <div className="font-medium text-sm text-gray-900">{palette.label}</div>
+                  <div className="text-xs text-gray-500 mt-1">{palette.description}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Mood */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-3">
+              Mood / Atmosphere
+            </label>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              {MOODS.map((moodOption) => (
+                <button
+                  key={moodOption.value}
+                  onClick={() => setMood(moodOption.value)}
+                  className={`p-3 rounded-lg border-2 text-left transition-all ${
+                    mood === moodOption.value
+                      ? 'border-primary-600 bg-primary-50'
+                      : 'border-gray-200 hover:border-gray-300'
+                  }`}
+                >
+                  <div className="font-medium text-sm text-gray-900">{moodOption.label}</div>
+                  <div className="text-xs text-gray-500 mt-1">{moodOption.description}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Description Input */}
       <div>
         <label htmlFor="cover-description" className="block text-sm font-medium text-gray-700 mb-2">
           Additional Description (Optional)
         </label>
-        <textarea
+                <textarea
           id="cover-description"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           className="input-field w-full min-h-[100px]"
-          placeholder="Describe the mood, theme, or specific elements you'd like in your cover (e.g., 'a mysterious forest at night', 'bright cityscape', 'vintage illustration style')"
+          placeholder="Describe specific visual elements, scenes, or details you'd like in your cover (e.g., 'a mysterious forest at night with fog', 'bright modern cityscape at sunset', 'vintage illustration of a ship', 'abstract geometric patterns'). Leave empty for AI-generated suggestions based on your book details."
         />
         <p className="text-xs text-gray-500 mt-1">
-          Leave empty to use book title and author automatically
+          Optional: Add specific details about imagery, composition, or visual elements you want included
         </p>
       </div>
 
