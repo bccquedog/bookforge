@@ -85,7 +85,7 @@ export const uploadManuscript = async (projectId: string, file: File): Promise<v
 
 export const buildBook = async (projectId: string): Promise<{ formats: string[] }> => {
   try {
-    const response = await api.post(`/api/projects/${projectId}/build`)
+    const response = await api.post(`/api/projects/${projectId}/build`, {})
     return response.data
   } catch (error: any) {
     console.error('Failed to build book:', error)

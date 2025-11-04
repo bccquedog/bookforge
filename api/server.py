@@ -605,7 +605,7 @@ def build_book(project_id):
             return jsonify({'error': 'Manuscript not found'}), 400
 
         # Get config from request or project
-        data = request.get_json() or {}
+        data = request.get_json(force=True, silent=True) or {}
         config_data = data.get('config', project.get('config', {}))
         logger.info(f"[BUILD] Config data: {config_data}")
         
