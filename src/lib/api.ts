@@ -160,6 +160,16 @@ export const getCover = async (projectId: string): Promise<string> => {
   }
 }
 
+export const debugProject = async (projectId: string): Promise<any> => {
+  try {
+    const response = await api.get(`/api/projects/${projectId}/debug`)
+    return response.data
+  } catch (error: any) {
+    console.error('Failed to get debug info:', error)
+    throw new Error(`Failed to get debug info: ${error.response?.data?.message || error.message}`)
+  }
+}
+
 // Utility function to download blob as file
 export const downloadFile = (blob: Blob, filename: string): void => {
   try {

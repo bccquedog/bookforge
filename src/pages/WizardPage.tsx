@@ -23,6 +23,7 @@ import {
   getProject,
   downloadBook,
   downloadFile,
+  debugProject,
   type BookConfig,
   type BookProject
 } from '../lib/api'
@@ -150,13 +151,22 @@ export function WizardPage() {
       return
     }
 
-    setIsProcessing(true)
+        setIsProcessing(true)
     try {
       console.log('Creating project...')
       // Create project
       const project = await createProject(data)
       setCurrentProject(project)
       console.log('Project created:', project)
+      
+      // DEBUG: Get preview after project creation
+      try {
+        const debugAfterCreate = await debugProject(project.id)
+        console.log('🔍 DEBUG AFTER CREATE:', JSON.stringify(debugAfterCreate, null, 2))
+      } catch (debugError) {
+        console.error('Debug after create failed:', debugError)
+      }
+      
       toast.success('Project created successfully!')
 
       console.log('Uploading manuscript...')
@@ -164,11 +174,28 @@ export function WizardPage() {
       await uploadManuscript(project.id, uploadedFile)
       toast.success('Manuscript uploaded successfully!')
 
+      // DEBUG: Get preview after upload
+      try {
+        const debugAfterUpload = await debugProject(project.id)
+        console.log('🔍 DEBUG AFTER UPLOAD:', JSON.stringify(debugAfterUpload, null, 2))
+      } catch (debugError) {
+        console.error('Debug after upload failed:', debugError)
+      }
+
       console.log('Building book...')
       // Build book
       const result = await buildBook(project.id)
       console.log('Book built:', result)
-      toast.success(`Book generated successfully! Available formats: ${result.formats.join(', ')}`)
+      
+      // DEBUG: Get preview after build
+      try {
+        const debugAfterBuild = await debugProject(project.id)
+        console.log('🔍 DEBUG AFTER BUILD:', JSON.stringify(debugAfterBuild, null, 2))
+      } catch (debugError) {
+        console.error('Debug after build failed:', debugError)
+      }
+      
+      toast.success(`Book generated successfully! Available formats: ${result.formats.join(', ')}`)                                                             
 
       // Update project status
       const updatedProject = await getProject(project.id)
@@ -177,6 +204,18 @@ export function WizardPage() {
 
     } catch (error: any) {
       console.error('Error processing book:', error)
+      console.error('Error details:', error.response?.data || error.message)
+      
+      // DEBUG: Get preview on error
+      if (currentProject?.id) {
+        try {
+          const debugOnError = await debugProject(currentProject.id)
+          console.log('🔍 DEBUG ON ERROR:', JSON.stringify(debugOnError, null, 2))
+        } catch (debugError) {
+          console.error('Debug on error failed:', debugError)
+        }
+      }
+      
       toast.error(error.message || 'Failed to generate book')
     } finally {
       setIsProcessing(false)

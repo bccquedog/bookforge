@@ -140,6 +140,7 @@ def create_project():
     """Create a new book project"""
     try:
         data = request.get_json()
+        logger.info(f"[CREATE_PROJECT] Request data: {data}")
         
         project_id = str(uuid.uuid4())
         project = {
@@ -154,12 +155,15 @@ def create_project():
         
         projects[project_id] = project
         
-        logger.info(f"Created project {project_id}")
+        logger.info(f"[CREATE_PROJECT] Created project {project_id}: title='{project['title']}', author='{project['author']}'")
+        logger.info(f"[CREATE_PROJECT] Project state: {project}")
         return jsonify(project), 201
         
     except Exception as e:
-        logger.error(f"Error creating project: {str(e)}")
-        return jsonify({'error': 'Failed to create project'}), 500
+        logger.error(f"[CREATE_PROJECT] Error creating project: {str(e)}")
+        import traceback
+        logger.error(f"[CREATE_PROJECT] Traceback: {traceback.format_exc()}")
+        return jsonify({'error': f'Failed to create project: {str(e)}'}), 500
 
 @app.route('/api/projects', methods=['GET'])
 def get_projects():
@@ -174,18 +178,86 @@ def get_project(project_id):
     
     return jsonify(projects[project_id])
 
+@app.route('/api/projects/<project_id>/debug', methods=['GET'])
+def debug_project(project_id):
+    """Debug endpoint to show detailed project state"""
+    if project_id not in projects:
+        return jsonify({'error': 'Project not found'}), 404
+    
+    project = projects[project_id]
+    
+    # Check file existence
+    debug_info = {
+        'project': project.copy(),
+        'file_checks': {},
+        'directory_checks': {},
+        'capabilities': {
+            'weasyprint_available': WEASYPRINT_AVAILABLE,
+            'firebase_available': FIREBASE_AVAILABLE,
+            'openai_available': OPENAI_AVAILABLE,
+            'gemini_available': GEMINI_AVAILABLE,
+            'document_processor_available': DOCUMENT_PROCESSOR_AVAILABLE
+        }
+    }
+    
+    # Check manuscript file
+    if project.get('manuscript_path'):
+        manuscript_path = Path(project['manuscript_path'])
+        debug_info['file_checks']['manuscript_path'] = {
+            'path': str(manuscript_path),
+            'exists': manuscript_path.exists(),
+            'is_file': manuscript_path.is_file() if manuscript_path.exists() else False,
+            'size': manuscript_path.stat().st_size if manuscript_path.exists() else 0
+        }
+    
+    # Check output files
+    if project.get('output_paths'):
+        debug_info['file_checks']['output_paths'] = {}
+        for format_type, path in project['output_paths'].items():
+            output_path = Path(path)
+            debug_info['file_checks']['output_paths'][format_type] = {
+                'path': str(output_path),
+                'exists': output_path.exists(),
+                'is_file': output_path.is_file() if output_path.exists() else False,
+                'size': output_path.stat().st_size if output_path.exists() else 0
+            }
+    
+    # Check project directory
+    temp_dir = Path(tempfile.gettempdir()) / 'bookforge' / project_id
+    debug_info['directory_checks']['project_dir'] = {
+        'path': str(temp_dir),
+        'exists': temp_dir.exists(),
+        'is_dir': temp_dir.is_dir() if temp_dir.exists() else False
+    }
+    
+    if temp_dir.exists():
+        debug_info['directory_checks']['project_dir']['contents'] = [
+            str(p.name) for p in temp_dir.iterdir()
+        ]
+    
+    return jsonify(debug_info)
+
 @app.route('/api/projects/<project_id>/upload', methods=['POST'])
 def upload_manuscript(project_id):
     """Upload manuscript file for a project"""
     try:
+        logger.info(f"[UPLOAD] Starting upload for project {project_id}")
+        
         if project_id not in projects:
+            logger.error(f"[UPLOAD] Project {project_id} not found")
             return jsonify({'error': 'Project not found'}), 404
         
+        logger.info(f"[UPLOAD] Project found: {projects[project_id].get('title', 'Unknown')}")
+        
         if 'file' not in request.files:
+            logger.error(f"[UPLOAD] No file in request.files")
             return jsonify({'error': 'No file provided'}), 400
         
         file = request.files['file']
+        logger.info(f"[UPLOAD] File received: {file.filename}, size: {file.content_length or 'unknown'}, type: {file.content_type}")
+        
         if file.filename == '':
+            logger.error(f"[UPLOAD] Empty filename")
             return jsonify({'error': 'No file selected'}), 400
         
         # Try to extract content from the file
@@ -235,8 +307,12 @@ def upload_manuscript(project_id):
         projects[project_id]['status'] = 'uploaded'
         if content:
             projects[project_id]['manuscript_content'] = content
+            logger.info(f"[UPLOAD] Extracted {len(content)} characters of content")
         
-        logger.info(f"Uploaded manuscript for project {project_id}")
+        logger.info(f"[UPLOAD] Uploaded manuscript for project {project_id}")
+        logger.info(f"[UPLOAD] Project state after upload: status={projects[project_id]['status']}, manuscript_path={projects[project_id].get('manuscript_path')}, manuscript_url={projects[project_id].get('manuscript_url')}")
+        logger.info(f"[UPLOAD] File saved to: {file_path}, exists: {file_path.exists()}, size: {file_path.stat().st_size if file_path.exists() else 0}")
+        
         return jsonify({
             'message': 'File uploaded successfully',
             'filename': file.filename,
@@ -246,8 +322,10 @@ def upload_manuscript(project_id):
         })
         
     except Exception as e:
-        logger.error(f"Error uploading file: {str(e)}")
-        return jsonify({'error': 'Failed to upload file'}), 500
+        logger.error(f"[UPLOAD] Error uploading file: {str(e)}")
+        import traceback
+        logger.error(f"[UPLOAD] Traceback: {traceback.format_exc()}")
+        return jsonify({'error': f'Failed to upload file: {str(e)}'}), 500
 
 @app.route('/api/projects/<project_id>/generate-cover', methods=['POST'])
 def generate_cover(project_id):
@@ -475,17 +553,25 @@ Be constructive and helpful in your feedback.
 def build_book(project_id):
     """Build the book from manuscript and config"""
     try:
+        logger.info(f"[BUILD] Starting build for project {project_id}")
+        
         # Check if project exists
         if project_id not in projects:
+            logger.error(f"[BUILD] Project {project_id} not found")
             return jsonify({'error': 'Project not found'}), 404
         
         project = projects[project_id]
+        logger.info(f"[BUILD] Project found: {project.get('title', 'Unknown')}, status: {project.get('status')}")
         
         # Get manuscript path or URL from project
         manuscript_path = project.get('manuscript_path')
         manuscript_url = project.get('manuscript_url')
         
+        logger.info(f"[BUILD] Manuscript path: {manuscript_path}")
+        logger.info(f"[BUILD] Manuscript URL: {manuscript_url}")
+        
         if not manuscript_path and not manuscript_url:
+            logger.error(f"[BUILD] No manuscript found in project")
             return jsonify({'error': 'No manuscript found. Please upload a manuscript first.'}), 400
 
         # Update status
@@ -495,12 +581,13 @@ def build_book(project_id):
         # Use local file if it exists, otherwise download from URL
         if manuscript_path and Path(manuscript_path).exists():
             manuscript_file = Path(manuscript_path)
-            logger.info(f"Using local manuscript: {manuscript_file}")
+            logger.info(f"[BUILD] Using local manuscript: {manuscript_file}, size: {manuscript_file.stat().st_size}")
         elif manuscript_url:
             # Download manuscript from Firebase Storage URL
-            logger.info(f"Downloading manuscript from: {manuscript_url}")
+            logger.info(f"[BUILD] Downloading manuscript from: {manuscript_url}")
             response = requests.get(manuscript_url)
             response.raise_for_status()
+            logger.info(f"[BUILD] Download successful, size: {len(response.content)} bytes")
 
             # Determine file extension from URL or content-type
             content_disposition = response.headers.get('content-disposition', '')
@@ -512,13 +599,15 @@ def build_book(project_id):
 
             manuscript_file = temp_dir / filename
             manuscript_file.write_bytes(response.content)
-            logger.info(f"Manuscript downloaded to: {manuscript_file}")
+            logger.info(f"[BUILD] Manuscript downloaded to: {manuscript_file}, exists: {manuscript_file.exists()}, size: {manuscript_file.stat().st_size if manuscript_file.exists() else 0}")
         else:
+            logger.error(f"[BUILD] Neither manuscript_path exists nor manuscript_url provided")
             return jsonify({'error': 'Manuscript not found'}), 400
 
         # Get config from request or project
         data = request.get_json() or {}
         config_data = data.get('config', project.get('config', {}))
+        logger.info(f"[BUILD] Config data: {config_data}")
         
         # Convert camelCase to snake_case for BuildConfig
         def convert_to_snake_case(key):
@@ -548,23 +637,37 @@ def build_book(project_id):
         
         # Convert config keys
         converted_config = {convert_to_snake_case(k): v for k, v in config_data.items()}
+        logger.info(f"[BUILD] Converted config: {converted_config}")
         
         # Ensure required fields have defaults
         converted_config.setdefault('title', project.get('title', 'Untitled Book'))
         converted_config.setdefault('subtitle', '')
         converted_config.setdefault('author', project.get('author', ''))
         
+        logger.info(f"[BUILD] Creating BuildConfig with WEASYPRINT_AVAILABLE={WEASYPRINT_AVAILABLE}")
         config = BuildConfig(**converted_config)
+        logger.info(f"[BUILD] BuildConfig created successfully")
 
         # Build outputs
         output_dir = temp_dir / 'output'
+        logger.info(f"[BUILD] Output directory: {output_dir}")
+        logger.info(f"[BUILD] Calling build_outputs with config title='{config.title}', manuscript_file={manuscript_file}")
+        
+        if not WEASYPRINT_AVAILABLE:
+            logger.error(f"[BUILD] WeasyPrint not available! Cannot build outputs.")
+            return jsonify({'error': 'WeasyPrint not available. Cannot generate PDF.'}), 500
+        
         outputs = build_outputs(config, manuscript_file, output_dir)
+        logger.info(f"[BUILD] build_outputs returned: {outputs}")
         
         # Store outputs in project
         project['output_paths'] = {k: str(v) for k, v in outputs.items()}
         project['status'] = 'completed'
 
-        logger.info(f"Built book for project {project_id}")
+        logger.info(f"[BUILD] Built book for project {project_id}")
+        logger.info(f"[BUILD] Output paths: {project['output_paths']}")
+        logger.info(f"[BUILD] Final project status: {project['status']}")
+        
         return jsonify({
             'message': 'Book built successfully',
             'formats': list(outputs.keys()),
