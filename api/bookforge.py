@@ -313,22 +313,167 @@ def extract_text_quick(path: Path) -> str:
 # Build pipeline
 # ----------------------
 
+def detect_chapter_heading(line: str) -> bool:
+    """Detect if a line is a chapter heading"""
+    line_upper = line.strip().upper()
+    # Common chapter patterns
+    patterns = [
+        r'^CHAPTER\s+[A-Z]+[\w\s]*:?',  # "CHAPTER ONE", "CHAPTER TWENTY-ONE:"
+        r'^CHAPTER\s+\d+',  # "CHAPTER 1", "CHAPTER 21"
+        r'^PART\s+[IVX]+',  # "PART I", "PART II"
+        r'^PART\s+\d+',  # "PART 1", "PART 2"
+        r'^PROLOGUE',
+        r'^EPILOGUE',
+    ]
+    for pattern in patterns:
+        if re.match(pattern, line_upper):
+            return True
+    return False
+
+def txt_to_html_with_chapters(text: str) -> str:
+    """Convert plain text to HTML with chapter detection"""
+    lines = text.split('\n')
+    html_lines = ['<html><body>']
+    in_paragraph = False
+    chapter_count = 0
+    skip_next = False
+    
+    for i, line in enumerate(lines):
+        if skip_next:
+            skip_next = False
+            continue
+            
+        stripped = line.strip()
+        
+        # Detect chapter headings
+        if detect_chapter_heading(line) and len(stripped) < 200:  # Heading should be short
+            # Close previous chapter section if open
+            if chapter_count > 0:
+                html_lines.append('</section>')
+            
+            # Close previous paragraph if open
+            if in_paragraph:
+                html_lines.append('</p>')
+                in_paragraph = False
+            
+            # Check if next line is also part of the heading (subtitle)
+            heading_text = stripped
+            if i + 1 < len(lines) and lines[i + 1].strip() and not detect_chapter_heading(lines[i + 1]):
+                next_line = lines[i + 1].strip()
+                if len(next_line) < 100 and not next_line.endswith('.'):
+                    heading_text += ': ' + next_line
+                    skip_next = True  # Skip next line
+            
+            # Add chapter heading with proper structure
+            chapter_count += 1
+            heading_id = f"chapter-{chapter_count}"
+            html_lines.append(f'<section class="chapter" id="{heading_id}">')
+            html_lines.append(f'<h1 class="chapter-title">{html_escape(heading_text)}</h1>')
+            in_paragraph = False
+            continue
+        
+        # Empty line - break paragraph
+        if not stripped:
+            if in_paragraph:
+                html_lines.append('</p>')
+                in_paragraph = False
+            # Close chapter if we have one open and we've had some content
+            continue
+        
+        # Regular text
+        escaped = html_escape(stripped)
+        
+        # Start new paragraph if needed
+        if not in_paragraph:
+            html_lines.append('<p>')
+            in_paragraph = True
+        
+        html_lines.append(escaped)
+    
+    # Close any open tags
+    if in_paragraph:
+        html_lines.append('</p>')
+    
+    # Close any open chapter sections
+    if chapter_count > 0:
+        html_lines.append('</section>')
+    
+    html_lines.append('</body></html>')
+    return '\n'.join(html_lines)
+
+def detect_and_convert_chapters_in_html(html: str) -> str:
+    """Post-process HTML to ensure chapters are properly structured for EPUB"""
+    # Extract body content
+    body_match = re.search(r'<body[^>]*>(.*?)</body>', html, re.DOTALL)
+    if not body_match:
+        return html
+    
+    body_content = body_match.group(1)
+    lines = body_content.split('\n')
+    processed_lines = []
+    in_paragraph = False
+    chapter_count = 0
+    
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        
+        # Check if this line looks like a chapter heading in HTML
+        # Look for lines that are standalone (not in paragraphs) and match chapter patterns
+        if re.search(r'<p[^>]*>(.*?)</p>', line):
+            # Extract text from paragraph
+            text_match = re.search(r'<p[^>]*>(.*?)</p>', line)
+            if text_match:
+                text_content = re.sub(r'<[^>]+>', '', text_match.group(1)).strip()
+                if detect_chapter_heading(text_content) and len(text_content) < 200:
+                    # Convert paragraph to h1 heading and wrap in section
+                    chapter_count += 1
+                    heading_id = f"chapter-{chapter_count}"
+                    processed_lines.append(f'<section class="chapter" id="{heading_id}">')
+                    processed_lines.append(f'<h1 class="chapter-title">{text_match.group(1)}</h1>')
+                    in_paragraph = False
+                    continue
+        
+        # Check for plain text lines that might be headings (from pre tags)
+        if stripped and not stripped.startswith('<') and detect_chapter_heading(stripped) and len(stripped) < 200:
+            chapter_count += 1
+            heading_id = f"chapter-{chapter_count}"
+            processed_lines.append(f'<section class="chapter" id="{heading_id}">')
+            processed_lines.append(f'<h1 class="chapter-title">{html_escape(stripped)}</h1>')
+            in_paragraph = False
+            continue
+        
+        processed_lines.append(line)
+    
+    # Close any open sections
+    if chapter_count > 0:
+        processed_lines.append('</section>')
+    
+    # Reconstruct HTML
+    new_body = '\n'.join(processed_lines)
+    html = html[:body_match.start(1)] + new_body + html[body_match.end(1):]
+    
+    return html
+
 def convert_to_html(manuscript: Path) -> str:
     ext = manuscript.suffix.lower()
     if have_pandoc():
         cmd = [
             "pandoc", str(manuscript),
-            "--from", "docx" if ext == ".docx" else ("markdown" if ext == ".md" else "markdown"),
+            "--from", "docx" if ext == ".docx" else ("markdown" if ext == ".md" else "plain"),
             "--to", "html5",
             "--section-divs",
             "--standalone",
         ]
-        return subprocess.check_output(cmd, text=True)
+        html = subprocess.check_output(cmd, text=True)
+        # Post-process to ensure chapter headings are properly detected for txt files
+        if ext == ".txt":
+            html = detect_and_convert_chapters_in_html(html)
+        return html
     # Fallback simple converters
     if ext == ".md":
         return markdown_to_html_simple(Path(manuscript).read_text(encoding="utf-8"))
     if ext == ".txt":
-        return f"<html><body><pre>{html_escape(Path(manuscript).read_text(encoding='utf-8'))}</pre></body></html>"
+        return txt_to_html_with_chapters(Path(manuscript).read_text(encoding="utf-8", errors="ignore"))
     if ext == ".docx" and docx is not None:
         return docx_to_html_simple(manuscript)
     raise RuntimeError("No conversion path to HTML; install Pandoc or use .md/.txt/.docx with python-docx.")
@@ -546,10 +691,19 @@ def build_outputs(cfg: BuildConfig, manuscript: Path, outdir: Path) -> Dict[str,
     if cfg.epub and have_pandoc():
         print("Building EPUB via Pandoc...")
         epub_path = outdir / f"{slugify(cfg.title)}.epub"
+        # Use --epub-chapter-level to split chapters on h1 headings
+        # --section-divs preserves the section structure
+        # --toc-depth=2 for better table of contents
         subprocess.run([
             "pandoc", str(html_path), "-o", str(epub_path),
+            "--from", "html",
+            "--to", "epub3",
+            "--epub-chapter-level=1",  # Split on h1 headings (chapter titles)
+            "--section-divs",  # Preserve section divisions
+            "--toc-depth=2",  # Include h1 and h2 in TOC
             "--metadata", f"title={cfg.title}",
             "--metadata", f"author={cfg.author}",
+            "--metadata", "language=en",
         ], check=True)
         outputs["epub"] = epub_path
 
@@ -572,12 +726,33 @@ def postprocess_body_html(html: str, cfg: BuildConfig) -> str:
     # For stable PDF TOCs, rely on Pandoc when possible.
     html = re.sub(r"<hr */?>", '<div class="hr-ornament"></div>', html)
 
-    # Wrap h1 sections as chapter-open (heuristic)
-    html = re.sub(r"(<h1[^>]*>)", r'<div class="chapter-open">\1', html)
-    html = re.sub(r"(</h1>)", r"\1</div>", html)
+    # If we already have <section class="chapter"> tags (from txt conversion), preserve them
+    # Otherwise, wrap h1 sections as chapter sections
+    if '<section class="chapter"' not in html:
+        # Wrap standalone h1 headings with section tags for EPUB chapter splitting
+        # Match h1 that aren't already in a section
+        html = re.sub(
+            r'(?<!<section[^>]*>)(<h1[^>]*>.*?</h1>)',
+            r'<section class="chapter">\1',
+            html,
+            flags=re.DOTALL
+        )
+        # Close sections before the next h1 or at the end
+        html = re.sub(r'(</h1>)(?!</section>)(?=<h1)', r'\1</section>', html)
+        # Also wrap in div for PDF styling compatibility
+        html = re.sub(r"(<h1[^>]*>)", r'<div class="chapter-open">\1', html)
+        html = re.sub(r"(</h1>)", r"\1</div>", html)
+    else:
+        # We have section tags, just add the chapter-open div for PDF styling
+        html = re.sub(r'(<section class="chapter"[^>]*>\s*)(<h1[^>]*>)', r'\1<div class="chapter-open">\2', html)
+        html = re.sub(r'(</h1>)(?=\s*</section>)', r'\1</div>', html)
 
-    # Add IDs to headings for TOC
+    # Add IDs to headings for TOC (if they don't already have IDs)
     def idify(match):
+        full_tag = match.group(0)
+        # Skip if already has an id attribute
+        if 'id=' in full_tag:
+            return full_tag
         text = re.sub("<[^<]+?>", "", match.group(2))
         sid = slugify(text)[:60] or "section"
         return f"<h{match.group(1)} id=\"{sid}\">{match.group(2)}</h{match.group(1)}>"
