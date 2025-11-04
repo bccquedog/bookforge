@@ -387,6 +387,9 @@ def txt_to_html_with_chapters(text: str) -> str:
         if not in_paragraph:
             html_lines.append('<p>')
             in_paragraph = True
+        else:
+            # Add space between lines in same paragraph
+            html_lines.append(' ')
         
         html_lines.append(escaped)
     
@@ -454,6 +457,15 @@ def detect_and_convert_chapters_in_html(html: str) -> str:
     
     return html
 
+def extract_body_content(html: str) -> str:
+    """Extract just the body content from a full HTML document"""
+    # Try to extract content between <body> tags
+    body_match = re.search(r'<body[^>]*>(.*?)</body>', html, re.DOTALL | re.IGNORECASE)
+    if body_match:
+        return body_match.group(1).strip()
+    # If no body tags, assume it's already just body content
+    return html.strip()
+
 def convert_to_html(manuscript: Path) -> str:
     ext = manuscript.suffix.lower()
     if have_pandoc():
@@ -468,14 +480,18 @@ def convert_to_html(manuscript: Path) -> str:
         # Post-process to ensure chapter headings are properly detected for txt files
         if ext == ".txt":
             html = detect_and_convert_chapters_in_html(html)
-        return html
+        # Extract just the body content (template will wrap it)
+        return extract_body_content(html)
     # Fallback simple converters
     if ext == ".md":
-        return markdown_to_html_simple(Path(manuscript).read_text(encoding="utf-8"))
+        html = markdown_to_html_simple(Path(manuscript).read_text(encoding="utf-8"))
+        return extract_body_content(html)
     if ext == ".txt":
-        return txt_to_html_with_chapters(Path(manuscript).read_text(encoding="utf-8", errors="ignore"))
+        html = txt_to_html_with_chapters(Path(manuscript).read_text(encoding="utf-8", errors="ignore"))
+        return extract_body_content(html)
     if ext == ".docx" and docx is not None:
-        return docx_to_html_simple(manuscript)
+        html = docx_to_html_simple(manuscript)
+        return extract_body_content(html)
     raise RuntimeError("No conversion path to HTML; install Pandoc or use .md/.txt/.docx with python-docx.")
 
 
@@ -621,8 +637,7 @@ CSS_BASE_TEMPLATE = Template(r"""
   {% endif %}
 }
 
-html, body { height: 100%; }
-body.book { font-family: {{ font_family }}; font-size: {{ font_size_pt }}pt; line-height: {{ line_height }}; hyphens: {{ 'auto' if hyphenate else 'manual' }}; }
+body.book { font-family: {{ font_family }}; font-size: {{ font_size_pt }}pt; line-height: {{ line_height }}; hyphens: {{ 'auto' if hyphenate else 'manual' }}; min-height: auto; }
 
 h1, h2, h3 { page-break-after: avoid; }
 
