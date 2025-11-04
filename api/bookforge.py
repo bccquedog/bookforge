@@ -553,8 +553,199 @@ HTML_TEMPLATE = Template(r"""
 <html lang="{{ language }}">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{{ title }}{% if subtitle %}: {{ subtitle }}{% endif %}</title>
   <style>
+    /* Screen styles for HTML viewing */
+    * {
+      box-sizing: border-box;
+    }
+    
+    body.book {
+      font-family: {{ font_family }};
+      font-size: {{ font_size_pt * 1.333 }}px; /* Convert pt to px for screen */
+      line-height: {{ line_height }};
+      color: #333;
+      background: #fff;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 2rem 1.5rem;
+      text-align: justify;
+    }
+    
+    /* Front matter styling */
+    .front-matter {
+      margin-bottom: 3rem;
+    }
+    
+    .blank.verso {
+      display: none;
+    }
+    
+    .half-title {
+      text-align: center;
+      font-size: 1.5em;
+      margin: 2rem 0;
+      padding: 2rem 0;
+    }
+    
+    .title-page {
+      text-align: center;
+      margin: 3rem 0;
+      padding: 3rem 0;
+    }
+    
+    .book-title {
+      font-size: 2.5em;
+      margin: 0 0 0.5em 0;
+      font-weight: bold;
+    }
+    
+    .book-subtitle {
+      font-size: 1.4em;
+      margin: 0.5em 0;
+      color: #666;
+      font-weight: normal;
+    }
+    
+    .book-author {
+      margin-top: 1.5em;
+      font-size: 1.2em;
+    }
+    
+    .book-imprint, .book-isbn {
+      margin-top: 0.5em;
+      font-size: 0.9em;
+      color: #666;
+    }
+    
+    .copyright {
+      margin: 2rem 0;
+      padding: 1rem 0;
+      font-size: 0.9em;
+      border-top: 1px solid #ddd;
+      border-bottom: 1px solid #ddd;
+    }
+    
+    .dedication {
+      text-align: center;
+      font-style: italic;
+      margin: 3rem 0;
+      padding: 2rem 0;
+    }
+    
+    .toc {
+      margin: 2rem 0;
+    }
+    
+    .toc h2 {
+      margin-bottom: 1rem;
+      font-size: 1.5em;
+    }
+    
+    /* Body matter styling */
+    .body-matter {
+      margin: 3rem 0;
+    }
+    
+    .body-matter section.chapter {
+      margin: 3rem 0;
+      page-break-before: always;
+    }
+    
+    .body-matter h1.chapter-title {
+      font-size: 1.8em;
+      margin: 2rem 0 1.5rem 0;
+      font-weight: bold;
+      text-align: left;
+      page-break-after: avoid;
+    }
+    
+    .body-matter h1 {
+      font-size: 1.8em;
+      margin: 2rem 0 1rem 0;
+      font-weight: bold;
+    }
+    
+    .body-matter h2 {
+      font-size: 1.4em;
+      margin: 1.5rem 0 0.75rem 0;
+      font-weight: bold;
+    }
+    
+    .body-matter h3 {
+      font-size: 1.2em;
+      margin: 1.25rem 0 0.5rem 0;
+      font-weight: bold;
+    }
+    
+    .body-matter p {
+      margin: 0 0 1em 0;
+      text-align: justify;
+      text-indent: 1.2em;
+      line-height: {{ line_height }};
+    }
+    
+    .body-matter .chapter-open p,
+    .body-matter .chapter-title + p {
+      text-indent: 0;
+    }
+    
+    .body-matter p + p {
+      margin-top: 0;
+    }
+    
+    .hr-ornament {
+      text-align: center;
+      margin: 2em 0;
+      font-size: 1.2em;
+      letter-spacing: 0.5em;
+    }
+    
+    /* Back matter styling */
+    .back-matter {
+      margin-top: 4rem;
+      padding-top: 2rem;
+      border-top: 2px solid #ddd;
+    }
+    
+    .back-matter h2 {
+      font-size: 1.5em;
+      margin-bottom: 1rem;
+    }
+    
+    .back-matter p {
+      text-indent: 0;
+    }
+    
+    /* Responsive design */
+    @media (max-width: 768px) {
+      body.book {
+        font-size: {{ font_size_pt * 1.2 }}px;
+        padding: 1rem;
+      }
+      
+      .book-title {
+        font-size: 2em;
+      }
+      
+      .body-matter h1.chapter-title {
+        font-size: 1.5em;
+      }
+    }
+    
+    /* Print styles */
+    @media print {
+      {{ base_css }}
+      
+      body.book {
+        max-width: none;
+        padding: 0;
+      }
+    }
+  </style>
+  <style>
+    /* PDF-specific styles (only applied via WeasyPrint) */
     {{ base_css }}
   </style>
 </head>
