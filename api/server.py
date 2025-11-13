@@ -61,18 +61,49 @@ GEMINI_AVAILABLE = False
 GEMINI_CLIENT = None
 try:
     import google.generativeai as genai
-    gemini_key = os.environ.get('GEMINI_API_KEY')
+    # Try multiple possible environment variable names
+    gemini_key = (
+        os.environ.get('GEMINI_API_KEY') or 
+        os.environ.get('GOOGLE_AI_API_KEY') or 
+        os.environ.get('GOOGLEAI_API_KEY') or
+        os.environ.get('GOOGLE_GEMINI_API_KEY')
+    )
+    
     if gemini_key:
+        # Clean the key (remove whitespace)
+        gemini_key = gemini_key.strip()
+        
+        # Log which variable was found (without exposing the key)
+        if os.environ.get('GEMINI_API_KEY'):
+            logger.info("Found GEMINI_API_KEY environment variable")
+        elif os.environ.get('GOOGLE_AI_API_KEY'):
+            logger.info("Found GOOGLE_AI_API_KEY environment variable")
+        elif os.environ.get('GOOGLEAI_API_KEY'):
+            logger.info("Found GOOGLEAI_API_KEY environment variable")
+        elif os.environ.get('GOOGLE_GEMINI_API_KEY'):
+            logger.info("Found GOOGLE_GEMINI_API_KEY environment variable")
+        
+        # Validate key format (should start with AIza)
+        if not gemini_key.startswith('AIza'):
+            logger.warning(f"Gemini API key doesn't start with 'AIza' - may be invalid. First 10 chars: {gemini_key[:10]}...")
+        
         genai.configure(api_key=gemini_key)
-        GEMINI_CLIENT = genai.GenerativeModel('gemini-pro')
+        # Use Gemini 1.5 Pro for better analysis (upgraded from gemini-pro)
+        GEMINI_CLIENT = genai.GenerativeModel('gemini-1.5-pro')
         GEMINI_AVAILABLE = True
         logger.info("Gemini AI configured successfully")
     else:
-        logger.warning("GEMINI_API_KEY not found in environment")
+        logger.warning("No Gemini API key found. Checked: GEMINI_API_KEY, GOOGLE_AI_API_KEY, GOOGLEAI_API_KEY, GOOGLE_GEMINI_API_KEY")
+        # Log all environment variables that might be related (for debugging)
+        gemini_vars = {k: v[:10] + '...' if len(v) > 10 else v for k, v in os.environ.items() if 'GEMINI' in k.upper() or 'GOOGLE' in k.upper() and 'API' in k.upper()}
+        if gemini_vars:
+            logger.info(f"Found related environment variables: {list(gemini_vars.keys())}")
 except ImportError:
     logger.warning("google-generativeai not available. AI features will be disabled.")
 except Exception as e:
     logger.error(f"Error configuring Gemini: {e}")
+    import traceback
+    logger.error(f"Traceback: {traceback.format_exc()}")
 
 # Firebase Storage
 FIREBASE_AVAILABLE = False
@@ -308,6 +339,52 @@ def upload_manuscript(project_id):
         if content:
             projects[project_id]['manuscript_content'] = content
             logger.info(f"[UPLOAD] Extracted {len(content)} characters of content")
+            
+            # Auto-trigger AI analysis if Gemini is available (optional, can be done async)
+            # This allows immediate AI analysis after upload
+            if GEMINI_AVAILABLE and GEMINI_CLIENT:
+                try:
+                    # Run analysis in background (don't block response)
+                    import threading
+                    def analyze_background():
+                        try:
+                            # Use the analyze endpoint logic
+                            content_sample = content[:10000] if len(content) > 10000 else content
+                            prompt = f"""You are a professional book editor. Analyze this manuscript excerpt and provide:
+
+1. Title suggestions (3-5 options)
+2. Subtitle suggestions (2-3 options)  
+3. Recommended trim size (5x8, 5.5x8.5, 6x9, or 8.5x11) with reasoning
+4. Genre classification
+5. Brief quality assessment
+
+Manuscript excerpt:
+{content_sample}
+
+Return JSON:
+{{
+  "titleSuggestions": ["title1", "title2", ...],
+  "subtitleSuggestions": ["subtitle1", ...],
+  "recommendedTrim": "6x9",
+  "trimReason": "reasoning",
+  "genreGuess": "genre",
+  "qualityScore": 75
+}}"""
+                            response = GEMINI_CLIENT.generate_content(prompt)
+                            analysis_text = response.text
+                            import json
+                            import re
+                            json_match = re.search(r'\{.*\}', analysis_text, re.DOTALL)
+                            if json_match:
+                                analysis = json.loads(json_match.group())
+                                projects[project_id]['ai_analysis'] = analysis
+                                logger.info(f"[UPLOAD] Background AI analysis completed for {project_id}")
+                        except Exception as e:
+                            logger.warning(f"[UPLOAD] Background analysis failed: {e}")
+                    
+                    threading.Thread(target=analyze_background, daemon=True).start()
+                except Exception as e:
+                    logger.warning(f"[UPLOAD] Failed to start background analysis: {e}")
         
         logger.info(f"[UPLOAD] Uploaded manuscript for project {project_id}")
         logger.info(f"[UPLOAD] Project state after upload: status={projects[project_id]['status']}, manuscript_path={projects[project_id].get('manuscript_path')}, manuscript_url={projects[project_id].get('manuscript_url')}")
@@ -318,7 +395,8 @@ def upload_manuscript(project_id):
             'filename': file.filename,
             'size': file_path.stat().st_size,
             'url': file_url,
-            'content_length': len(content) if content else 0
+            'content_length': len(content) if content else 0,
+            'content': content  # Include extracted content in response
         })
         
     except Exception as e:
@@ -326,6 +404,72 @@ def upload_manuscript(project_id):
         import traceback
         logger.error(f"[UPLOAD] Traceback: {traceback.format_exc()}")
         return jsonify({'error': f'Failed to upload file: {str(e)}'}), 500
+
+@app.route('/api/extract-text', methods=['POST'])
+def extract_text():
+    """Extract text content from an uploaded file"""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file provided'}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+        
+        if not DOCUMENT_PROCESSOR_AVAILABLE:
+            return jsonify({'error': 'Document processor not available'}), 503
+        
+        # Check if HTML extraction is requested (for images)
+        extract_html = request.form.get('html', 'false').lower() == 'true'
+        
+        # Save temporarily to extract content
+        temp_dir = Path(tempfile.gettempdir()) / 'bookforge_temp'
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        temp_path = temp_dir / f"extract_{uuid.uuid4()}_{file.filename}"
+        file.save(temp_path)
+        
+        try:
+            if extract_html:
+                # Extract HTML content with images
+                from document_processor import extract_html_from_file
+                html_result = extract_html_from_file(temp_path)
+                if html_result:
+                    return jsonify({
+                        'success': True,
+                        'content': html_result['html'],
+                        'format': html_result['format'],
+                        'length': len(html_result['html'])
+                    })
+                else:
+                    return jsonify({
+                        'success': False,
+                        'error': 'Could not extract HTML from file'
+                    }), 400
+            else:
+                # Extract plain text content
+                content = extract_text_from_file(temp_path)
+                if content:
+                    return jsonify({
+                        'success': True,
+                        'content': content,
+                        'format': 'text',
+                        'length': len(content)
+                    })
+                else:
+                    return jsonify({
+                        'success': False,
+                        'error': 'Could not extract text from file'
+                    }), 400
+        finally:
+            # Clean up temp file
+            if temp_path.exists():
+                temp_path.unlink()
+        
+    except Exception as e:
+        logger.error(f"Error extracting text: {str(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return jsonify({'error': f'Failed to extract text: {str(e)}'}), 500
 
 @app.route('/api/projects/<project_id>/generate-cover', methods=['POST'])
 def generate_cover(project_id):
@@ -352,6 +496,48 @@ def generate_cover(project_id):
         color_palette = data.get('colorPalette', 'auto')
         visual_style = data.get('visualStyle', 'illustrated')  # illustrated, photographic, mixed
         mood = data.get('mood', 'neutral')  # neutral, energetic, calm, dramatic, mysterious, warm
+        
+        # Auto-generate cover description from manuscript if not provided and manuscript is available
+        if not cover_description and GEMINI_AVAILABLE and GEMINI_CLIENT:
+            manuscript_content = project.get('manuscript_content', '')
+            if manuscript_content:
+                try:
+                    # Use Gemini to analyze manuscript and suggest cover visual elements
+                    analysis_prompt = f"""Based on this book manuscript excerpt, suggest specific visual elements, scenes, or imagery that would be appropriate for a book cover.
+
+Book Title: {title}
+Book Subtitle: {subtitle if subtitle else 'None'}
+Author: {author}
+
+Manuscript excerpt (first 2000 characters):
+{manuscript_content[:2000]}
+
+Provide a concise description (2-3 sentences) of visual elements that would work well for the cover, such as:
+- Key scenes or settings
+- Important objects or symbols
+- Mood and atmosphere
+- Color suggestions
+
+Return ONLY the description text, no additional commentary or formatting."""
+                    
+                    analysis_response = GEMINI_CLIENT.generate_content(analysis_prompt)
+                    # Handle different response formats
+                    if hasattr(analysis_response, 'text'):
+                        ai_suggested_description = analysis_response.text.strip()
+                    elif hasattr(analysis_response, 'candidates') and len(analysis_response.candidates) > 0:
+                        candidate = analysis_response.candidates[0]
+                        if hasattr(candidate, 'content') and hasattr(candidate.content, 'parts'):
+                            ai_suggested_description = candidate.content.parts[0].text.strip()
+                        else:
+                            ai_suggested_description = str(candidate).strip()
+                    else:
+                        ai_suggested_description = str(analysis_response).strip()
+                    if ai_suggested_description:
+                        cover_description = ai_suggested_description
+                        logger.info(f"[COVER] Auto-generated description from manuscript: {cover_description[:100]}...")
+                except Exception as e:
+                    logger.warning(f"[COVER] Failed to generate description from manuscript: {e}")
+                    # Continue without auto-generated description
         
         # Build the prompt for DALL-E with enhanced structure
         prompt_parts = []
@@ -592,80 +778,254 @@ def analyze_manuscript(project_id):
         if not content:
             return jsonify({'error': 'No manuscript content available'}), 400
         
-        # Prepare prompt for Gemini
-        prompt = f"""Analyze this manuscript and provide a comprehensive review. Focus on:
-1. Overall writing quality and readability
-2. Key strengths and areas for improvement
-3. Genre classification
-4. Target audience/reading level
-5. Pacing and structure
-6. Specific recommendations for improvement
+        # Strip HTML tags if content is HTML (from DOCX extraction)
+        import re
+        if content.strip().startswith('<') and '</' in content:
+            # Remove HTML tags but keep text content
+            content = re.sub(r'<[^>]+>', ' ', content)
+            content = re.sub(r'\s+', ' ', content).strip()
+            logger.info("Stripped HTML tags from content for analysis")
+        
+        # Enhanced prompt for professional manuscript analysis
+        # Use more content for better analysis (Gemini 1.5 Pro supports larger context)
+        content_sample = content[:10000] if len(content) > 10000 else content
+        
+        prompt = f"""You are a professional book editor and formatter with expertise in print-ready book design.
 
-Manuscript content (first 3000 characters):
-{content[:3000]}
+Analyze this manuscript and provide a comprehensive professional review. Focus on:
 
-Provide your analysis in a structured JSON format with the following keys:
-- overallScore (0-100)
-- strengths (array of strings)
-- improvementAreas (array of strings)
-- genreGuess (string)
-- readingLevel (string)
-- pacing (string)
-- structure (string)
-- recommendations (array of objects with 'title', 'description', 'type' fields)
+1. **Overall Writing Quality** (0-100 score)
+   - Writing style and voice
+   - Readability and flow
+   - Professional polish
 
-Be constructive and helpful in your feedback.
+2. **Key Strengths**
+   - What works well in the writing
+   - Strong elements (dialogue, description, pacing, etc.)
+   - Professional qualities
+
+3. **Areas for Improvement**
+   - Specific, actionable suggestions
+   - Writing craft improvements
+   - Structural enhancements
+
+4. **Genre Classification**
+   - Primary genre (Mystery, Romance, Fantasy, Literary Fiction, etc.)
+   - Sub-genre if applicable
+   - Market positioning
+
+5. **Target Audience & Reading Level**
+   - Appropriate reading level (Middle Grade, Young Adult, Adult, Literary)
+   - Target demographic
+   - Market appeal
+
+6. **Pacing Analysis**
+   - Overall pacing (fast-paced, contemplative, balanced)
+   - Scene transitions
+   - Chapter structure
+
+7. **Structure Assessment**
+   - Chapter organization quality
+   - Paragraph structure
+   - Overall narrative flow
+
+8. **Professional Recommendations**
+   - Formatting suggestions (trim size, fonts, layout)
+   - Content improvements
+   - Publishing readiness
+
+Manuscript content (first 10,000 characters):
+{content_sample}
+
+Provide your analysis in a structured JSON format with the following exact structure:
+{{
+  "overallScore": <number 0-100>,
+  "strengths": ["strength 1", "strength 2", ...],
+  "improvementAreas": ["area 1", "area 2", ...],
+  "genreGuess": "<genre>",
+  "readingLevel": "<level>",
+  "pacing": "<pacing description>",
+  "structure": "<structure assessment>",
+  "recommendations": [
+    {{"title": "Recommendation title", "description": "Detailed description", "type": "info|warning|suggestion"}},
+    ...
+  ]
+}}
+
+Be specific, constructive, and professional in your feedback. Focus on actionable insights that will help create a polished, publication-ready book.
 """
         
-        # Call Gemini API
-        logger.info(f"Analyzing manuscript for project {project_id} with Gemini")
-        response = GEMINI_CLIENT.generate_content(prompt)
+        # Call Gemini API with improved error handling
+        logger.info(f"Analyzing manuscript for project {project_id} with Gemini 1.5 Pro")
+        logger.info(f"Content length: {len(content)} characters, sample length: {len(content_sample)} characters")
         
-        # Parse response
-        analysis_text = response.text
-        
-        # Try to extract JSON from the response
         import json
         import re
         
-        # Look for JSON in the response
-        json_match = re.search(r'\{.*\}', analysis_text, re.DOTALL)
-        if json_match:
-            analysis = json.loads(json_match.group())
-        else:
-            # Fallback: create a basic analysis
-            analysis = {
-                'overallScore': 75,
-                'strengths': ['Manuscript uploaded successfully', 'Ready for formatting'],
-                'improvementAreas': ['Analysis could not be generated'],
+        analysis_text = None
+        try:
+            response = GEMINI_CLIENT.generate_content(prompt)
+            
+            # Handle Gemini API response (google-generativeai 0.3.2 uses .text attribute)
+            try:
+                # Try direct .text attribute (standard for google-generativeai)
+                analysis_text = response.text
+                logger.info("Successfully accessed response.text")
+            except AttributeError:
+                # Fallback: try alternative formats
+                try:
+                    if hasattr(response, 'candidates') and len(response.candidates) > 0:
+                        candidate = response.candidates[0]
+                        if hasattr(candidate, 'content'):
+                            if hasattr(candidate.content, 'parts') and len(candidate.content.parts) > 0:
+                                analysis_text = candidate.content.parts[0].text
+                            elif hasattr(candidate.content, 'text'):
+                                analysis_text = candidate.content.text
+                    if not analysis_text:
+                        analysis_text = str(response)
+                except Exception as fallback_err:
+                    logger.error(f"Fallback response handling failed: {fallback_err}")
+                    analysis_text = str(response)
+            
+            if not analysis_text or len(analysis_text.strip()) == 0:
+                raise ValueError("Empty response from Gemini API")
+            
+            logger.info(f"Gemini response received, length: {len(analysis_text)} characters")
+            
+        except Exception as gemini_error:
+            # Check if it's an API key error
+            error_str = str(gemini_error)
+            if 'API key' in error_str or 'API_KEY' in error_str or 'API key not valid' in error_str:
+                logger.error(f"Gemini API key error: {error_str}")
+                return jsonify({
+                    'error': 'Gemini API key is invalid or not set. Please check GEMINI_API_KEY environment variable.',
+                    'errorType': 'API_KEY_INVALID',
+                    'overallScore': 70,
+                    'strengths': ['Manuscript uploaded successfully'],
+                    'improvementAreas': ['AI analysis unavailable: Invalid API key'],
+                    'genreGuess': 'Fiction',
+                    'readingLevel': 'Adult',
+                    'pacing': 'Balanced',
+                    'structure': 'Basic structure detected',
+                    'recommendations': [],
+                    'statistics': {
+                        'wordCount': len(content.split()),
+                        'estimatedPages': round(len(content.split()) / 250)
+                    }
+                }), 500
+            logger.error(f"Gemini API call failed: {str(gemini_error)}")
+            logger.error(f"Error type: {type(gemini_error).__name__}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            # Return error with detailed info for debugging
+            error_message = str(gemini_error)
+            return jsonify({
+                'error': f'Gemini API error: {error_message}',
+                'errorType': type(gemini_error).__name__,
+                'overallScore': 70,
+                'strengths': ['Manuscript uploaded successfully'],
+                'improvementAreas': [f'AI analysis unavailable: {error_message[:100]}'],
                 'genreGuess': 'Fiction',
                 'readingLevel': 'Adult',
                 'pacing': 'Balanced',
                 'structure': 'Basic structure detected',
                 'recommendations': [],
-                'rawResponse': analysis_text[:500]
+                'statistics': {
+                    'wordCount': len(content.split()),
+                    'estimatedPages': round(len(content.split()) / 250)
+                }
+            }), 500
+        
+        # Ensure analysis_text is defined
+        if not analysis_text:
+            logger.error("analysis_text is None or empty after Gemini call")
+            analysis_text = ""
+        
+        # Try to extract JSON from the response
+        analysis = None
+        try:
+            # Look for JSON in the response (improved pattern)
+            json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', analysis_text, re.DOTALL)
+            if json_match:
+                try:
+                    analysis = json.loads(json_match.group())
+                    logger.info("Successfully parsed JSON from Gemini response")
+                except json.JSONDecodeError as json_err:
+                    logger.warning(f"JSON decode error: {json_err}, trying alternative extraction")
+                    # Try alternative JSON extraction
+                    json_match = re.search(r'```json\s*(\{.*?\})\s*```', analysis_text, re.DOTALL)
+                    if json_match:
+                        analysis = json.loads(json_match.group(1))
+        except Exception as parse_error:
+            logger.warning(f"JSON parsing error: {parse_error}")
+        
+        # If JSON parsing failed, create fallback analysis
+        if not analysis:
+            logger.warning("Could not parse JSON from Gemini response, using fallback")
+            analysis = {
+                'overallScore': 75,
+                'strengths': ['Manuscript uploaded successfully', 'Ready for formatting'],
+                'improvementAreas': ['AI analysis format could not be parsed'],
+                'genreGuess': 'Fiction',
+                'readingLevel': 'Adult',
+                'pacing': 'Balanced',
+                'structure': 'Basic structure detected',
+                'recommendations': [],
+                'rawResponse': analysis_text[:1000] if len(analysis_text) > 0 else 'No response'
             }
         
-        # Calculate statistics
-        word_count = len(content.split())
+        # Calculate enhanced statistics
+        words = content.split()
+        word_count = len(words)
         sentences = len(re.findall(r'[.!?]+', content))
         paragraphs = len([p for p in content.split('\n\n') if p.strip()])
+        
+        # Enhanced dialogue calculation
+        dialogue_matches = re.findall(r'"[^"]*"', content)
+        dialogue_words = sum(len(d.replace('"', '').split()) for d in dialogue_matches)
+        dialogue_percentage = round((dialogue_words / word_count * 100) if word_count > 0 else 0, 1)
+        
+        # Enhanced action verb detection
+        action_verbs = r'\b(ran|jumped|fell|struck|hit|moved|grabbed|threw|pushed|pulled|fought|attacked|defended|walked|ran|sprinted|dashed)\b'
+        action_matches = len(re.findall(action_verbs, content, re.I))
+        action_percentage = round((action_matches / word_count * 100) if word_count > 0 else 0, 2)
         
         analysis['statistics'] = {
             'avgSentenceLength': round(word_count / sentences if sentences > 0 else 0, 1),
             'avgParagraphLength': round(word_count / paragraphs if paragraphs > 0 else 0),
-            'dialoguePercentage': round((len(re.findall(r'"[^"]*"', content)) * 10) / word_count if word_count > 0 else 0, 1),
-            'actionPercentage': round((len(re.findall(r'\b(ran|jumped|fell|struck|moved|grabbed)\b', content, re.I)) / word_count * 100 if word_count > 0 else 0), 2)
+            'dialoguePercentage': dialogue_percentage,
+            'actionPercentage': action_percentage,
+            'wordCount': word_count,
+            'estimatedPages': round(word_count / 250)  # ~250 words per page
         }
+        
+        # Add title/subtitle suggestions if not already present
+        if 'titleSuggestions' not in analysis or not analysis.get('titleSuggestions'):
+            # Generate basic title suggestions from content
+            first_lines = content.split('\n')[:5]
+            potential_titles = [line.strip() for line in first_lines if len(line.strip()) > 5 and len(line.strip()) < 80]
+            analysis['titleSuggestions'] = potential_titles[:3] if potential_titles else []
+        
+        # Add trim size recommendation if not present
+        if 'recommendedTrim' not in analysis:
+            estimated_pages = round(word_count / 250)
+            if estimated_pages < 100:
+                analysis['recommendedTrim'] = '5x8'
+                analysis['trimReason'] = 'Ideal for shorter books (under 100 pages)'
+            elif estimated_pages < 250:
+                analysis['recommendedTrim'] = '5.5x8.5'
+                analysis['trimReason'] = 'Great for medium-length books (100-250 pages)'
+            else:
+                analysis['recommendedTrim'] = '6x9'
+                analysis['trimReason'] = 'Perfect for standard novels (250+ pages)'
         
         # Store analysis in project
         project['analysis'] = analysis
+        project['ai_analysis'] = analysis  # Also store for quick access
         
         logger.info(f"Completed manuscript analysis for project {project_id}")
-        return jsonify({
-            'message': 'Analysis completed successfully',
-            'analysis': analysis
-        })
+        # Return analysis directly (not wrapped) for easier frontend consumption
+        return jsonify(analysis)
         
     except Exception as e:
         logger.error(f"Error analyzing manuscript: {str(e)}")

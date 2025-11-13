@@ -315,19 +315,62 @@ def extract_text_quick(path: Path) -> str:
 
 def detect_chapter_heading(line: str) -> bool:
     """Detect if a line is a chapter heading"""
-    line_upper = line.strip().upper()
-    # Common chapter patterns
+    line_stripped = line.strip()
+    if not line_stripped or len(line_stripped) > 200:  # Headings should be short
+        return False
+    
+    line_upper = line_stripped.upper()
+    
+    # Common chapter patterns (expanded to catch more variations)
     patterns = [
         r'^CHAPTER\s+[A-Z]+[\w\s]*:?',  # "CHAPTER ONE", "CHAPTER TWENTY-ONE:"
         r'^CHAPTER\s+\d+',  # "CHAPTER 1", "CHAPTER 21"
+        r'^CHAPTER\s+[A-Z]+[\w\s]*:.*',  # "CHAPTER ONE: The Invitation"
+        r'^CHAPTER\s+\d+:.*',  # "CHAPTER 1: Title"
         r'^PART\s+[IVX]+',  # "PART I", "PART II"
         r'^PART\s+\d+',  # "PART 1", "PART 2"
         r'^PROLOGUE',
         r'^EPILOGUE',
+        r'^CHAPTER\s+ONE',  # "Chapter One"
+        r'^CHAPTER\s+TWO',  # "Chapter Two"
+        r'^CHAPTER\s+THREE',  # "Chapter Three"
+        r'^CHAPTER\s+FOUR',  # "Chapter Four"
+        r'^CHAPTER\s+FIVE',  # "Chapter Five"
+        r'^CHAPTER\s+SIX',  # "Chapter Six"
+        r'^CHAPTER\s+SEVEN',  # "Chapter Seven"
+        r'^CHAPTER\s+EIGHT',  # "Chapter Eight"
+        r'^CHAPTER\s+NINE',  # "Chapter Nine"
+        r'^CHAPTER\s+TEN',  # "Chapter Ten"
+        r'^CHAPTER\s+ELEVEN',  # "Chapter Eleven"
+        r'^CHAPTER\s+TWELVE',  # "Chapter Twelve"
+        r'^CHAPTER\s+THIRTEEN',  # "Chapter Thirteen"
+        r'^CHAPTER\s+FOURTEEN',  # "Chapter Fourteen"
+        r'^CHAPTER\s+FIFTEEN',  # "Chapter Fifteen"
+        r'^CHAPTER\s+SIXTEEN',  # "Chapter Sixteen"
+        r'^CHAPTER\s+SEVENTEEN',  # "Chapter Seventeen"
+        r'^CHAPTER\s+EIGHTEEN',  # "Chapter Eighteen"
+        r'^CHAPTER\s+NINETEEN',  # "Chapter Nineteen"
+        r'^CHAPTER\s+TWENTY',  # "Chapter Twenty"
+        r'^CHAPTER\s+TWENTY-ONE',  # "Chapter Twenty-One"
+        r'^CHAPTER\s+TWENTY-TWO',  # "Chapter Twenty-Two"
+        r'^CHAPTER\s+TWENTY-THREE',  # "Chapter Twenty-Three"
+        r'^CHAPTER\s+TWENTY-FOUR',  # "Chapter Twenty-Four"
+        r'^CHAPTER\s+TWENTY-FIVE',  # "Chapter Twenty-Five"
+        r'^CHAPTER\s+TWENTY-SIX',  # "Chapter Twenty-Six"
+        r'^CHAPTER\s+TWENTY-SEVEN',  # "Chapter Twenty-Seven"
+        r'^CHAPTER\s+TWENTY-EIGHT',  # "Chapter Twenty-Eight"
+        r'^CHAPTER\s+TWENTY-NINE',  # "Chapter Twenty-Nine"
+        r'^CHAPTER\s+THIRTY',  # "Chapter Thirty"
     ]
+    
     for pattern in patterns:
         if re.match(pattern, line_upper):
             return True
+    
+    # Also check for "Chapter" followed by number word or number, optionally with colon and title
+    if re.match(r'^CHAPTER\s+[A-Z]+[\w\s-]*:?', line_upper):
+        return True
+    
     return False
 
 def txt_to_html_with_chapters(text: str) -> str:
@@ -406,56 +449,85 @@ def txt_to_html_with_chapters(text: str) -> str:
 
 def detect_and_convert_chapters_in_html(html: str) -> str:
     """Post-process HTML to ensure chapters are properly structured for EPUB"""
-    # Extract body content
-    body_match = re.search(r'<body[^>]*>(.*?)</body>', html, re.DOTALL)
-    if not body_match:
+    try:
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(html, 'html.parser')
+        chapter_count = 0
+        
+        # Find all paragraphs
+        paragraphs = soup.find_all('p')
+        
+        for p in paragraphs:
+            text_content = p.get_text(strip=True)
+            
+            # Check if this paragraph looks like a chapter heading
+            if detect_chapter_heading(text_content):
+                # Create a new section and h1 heading
+                chapter_count += 1
+                heading_id = f"chapter-{chapter_count}"
+                
+                # Create section wrapper
+                section = soup.new_tag('section', class_='chapter', id=heading_id)
+                
+                # Create h1 heading
+                h1 = soup.new_tag('h1', class_='chapter-title')
+                h1.string = text_content
+                
+                # Replace paragraph with section containing h1
+                section.append(h1)
+                p.replace_with(section)
+        
+        return str(soup)
+        
+    except ImportError:
+        # Fallback to regex-based approach if BeautifulSoup not available
+        # Extract body content
+        body_match = re.search(r'<body[^>]*>(.*?)</body>', html, re.DOTALL)
+        if not body_match:
+            return html
+        
+        body_content = body_match.group(1)
+        lines = body_content.split('\n')
+        processed_lines = []
+        chapter_count = 0
+        
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            
+            # Check if this line looks like a chapter heading in HTML
+            # Look for lines that are standalone (not in paragraphs) and match chapter patterns
+            if re.search(r'<p[^>]*>(.*?)</p>', line):
+                # Extract text from paragraph
+                text_match = re.search(r'<p[^>]*>(.*?)</p>', line)
+                if text_match:
+                    text_content = re.sub(r'<[^>]+>', '', text_match.group(1)).strip()
+                    if detect_chapter_heading(text_content) and len(text_content) < 200:
+                        # Convert paragraph to h1 heading and wrap in section
+                        chapter_count += 1
+                        heading_id = f"chapter-{chapter_count}"
+                        processed_lines.append(f'<section class="chapter" id="{heading_id}">')
+                        processed_lines.append(f'<h1 class="chapter-title">{text_match.group(1)}</h1>')
+                        continue
+            
+            # Check for plain text lines that might be headings (from pre tags)
+            if stripped and not stripped.startswith('<') and detect_chapter_heading(stripped) and len(stripped) < 200:
+                chapter_count += 1
+                heading_id = f"chapter-{chapter_count}"
+                processed_lines.append(f'<section class="chapter" id="{heading_id}">')
+                processed_lines.append(f'<h1 class="chapter-title">{html_escape(stripped)}</h1>')
+                continue
+            
+            processed_lines.append(line)
+        
+        # Close any open sections
+        if chapter_count > 0:
+            processed_lines.append('</section>')
+        
+        # Reconstruct HTML
+        new_body = '\n'.join(processed_lines)
+        html = html[:body_match.start(1)] + new_body + html[body_match.end(1):]
+        
         return html
-    
-    body_content = body_match.group(1)
-    lines = body_content.split('\n')
-    processed_lines = []
-    in_paragraph = False
-    chapter_count = 0
-    
-    for i, line in enumerate(lines):
-        stripped = line.strip()
-        
-        # Check if this line looks like a chapter heading in HTML
-        # Look for lines that are standalone (not in paragraphs) and match chapter patterns
-        if re.search(r'<p[^>]*>(.*?)</p>', line):
-            # Extract text from paragraph
-            text_match = re.search(r'<p[^>]*>(.*?)</p>', line)
-            if text_match:
-                text_content = re.sub(r'<[^>]+>', '', text_match.group(1)).strip()
-                if detect_chapter_heading(text_content) and len(text_content) < 200:
-                    # Convert paragraph to h1 heading and wrap in section
-                    chapter_count += 1
-                    heading_id = f"chapter-{chapter_count}"
-                    processed_lines.append(f'<section class="chapter" id="{heading_id}">')
-                    processed_lines.append(f'<h1 class="chapter-title">{text_match.group(1)}</h1>')
-                    in_paragraph = False
-                    continue
-        
-        # Check for plain text lines that might be headings (from pre tags)
-        if stripped and not stripped.startswith('<') and detect_chapter_heading(stripped) and len(stripped) < 200:
-            chapter_count += 1
-            heading_id = f"chapter-{chapter_count}"
-            processed_lines.append(f'<section class="chapter" id="{heading_id}">')
-            processed_lines.append(f'<h1 class="chapter-title">{html_escape(stripped)}</h1>')
-            in_paragraph = False
-            continue
-        
-        processed_lines.append(line)
-    
-    # Close any open sections
-    if chapter_count > 0:
-        processed_lines.append('</section>')
-    
-    # Reconstruct HTML
-    new_body = '\n'.join(processed_lines)
-    html = html[:body_match.start(1)] + new_body + html[body_match.end(1):]
-    
-    return html
 
 def extract_body_content(html: str) -> str:
     """Extract just the body content from a full HTML document"""
