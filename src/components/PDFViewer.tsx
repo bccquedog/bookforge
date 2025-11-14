@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { X, Download, ExternalLink } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 
@@ -13,25 +13,29 @@ export function PDFViewer({ blob, filename, isOpen, onClose }: PDFViewerProps) {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  // Create PDF URL when component mounts
-  useState(() => {
+  // Create PDF URL when component mounts or blob changes
+  useEffect(() => {
     if (blob && isOpen) {
       try {
         const url = URL.createObjectURL(blob)
         setPdfUrl(url)
         setError(null)
+        
+        return () => {
+          URL.revokeObjectURL(url)
+        }
       } catch (err) {
         setError('Failed to create PDF URL')
         console.error('PDF URL creation error:', err)
       }
-    }
-    
-    return () => {
+    } else {
+      // Clean up URL when closing
       if (pdfUrl) {
         URL.revokeObjectURL(pdfUrl)
+        setPdfUrl(null)
       }
     }
-  })
+  }, [blob, isOpen])
 
   const handleDownload = () => {
     const link = document.createElement('a')

@@ -170,6 +170,22 @@ export const debugProject = async (projectId: string): Promise<any> => {
   }
 }
 
+export const previewBook = async (projectId: string, config?: Partial<BookConfig>): Promise<Blob> => {
+  try {
+    const response = config 
+      ? await api.post(`/api/projects/${projectId}/preview`, { config }, {
+          responseType: 'blob'
+        })
+      : await api.get(`/api/projects/${projectId}/preview`, {
+          responseType: 'blob'
+        })
+    return response.data
+  } catch (error: any) {
+    console.error('Failed to get preview:', error)
+    throw new Error(`Failed to get preview: ${error.response?.data?.message || error.message}`)
+  }
+}
+
 // Utility function to download blob as file
 export const downloadFile = (blob: Blob, filename: string): void => {
   try {

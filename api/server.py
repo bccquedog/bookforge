@@ -16,7 +16,12 @@ import requests
 from io import BytesIO
 
 app = Flask(__name__)
-CORS(app)
+# Configure CORS to allow all origins and methods - Flask-CORS will handle OPTIONS automatically
+CORS(app, 
+     origins="*",
+     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+     allow_headers=["Content-Type", "Authorization"],
+     supports_credentials=False)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -88,10 +93,19 @@ try:
             logger.warning(f"Gemini API key doesn't start with 'AIza' - may be invalid. First 10 chars: {gemini_key[:10]}...")
         
         genai.configure(api_key=gemini_key)
-        # Use Gemini 1.5 Pro for better analysis (upgraded from gemini-pro)
-        GEMINI_CLIENT = genai.GenerativeModel('gemini-1.5-pro')
+        # Try gemini-1.5-pro first, fall back to gemini-pro if not available
+        try:
+            GEMINI_CLIENT = genai.GenerativeModel('gemini-1.5-pro')
+            logger.info("Gemini AI configured successfully with gemini-1.5-pro")
+        except Exception as e:
+            logger.warning(f"gemini-1.5-pro not available ({e}), trying gemini-pro")
+            try:
+                GEMINI_CLIENT = genai.GenerativeModel('gemini-pro')
+                logger.info("Gemini AI configured successfully with gemini-pro")
+            except Exception as e2:
+                logger.error(f"Failed to initialize Gemini model: {e2}")
+                raise
         GEMINI_AVAILABLE = True
-        logger.info("Gemini AI configured successfully")
     else:
         logger.warning("No Gemini API key found. Checked: GEMINI_API_KEY, GOOGLE_AI_API_KEY, GOOGLEAI_API_KEY, GOOGLE_GEMINI_API_KEY")
         # Log all environment variables that might be related (for debugging)
@@ -313,9 +327,10 @@ def upload_manuscript(project_id):
             except Exception as e:
                 logger.error(f"Error extracting content: {e}")
         
-        # Upload to Firebase Storage if available
+        # Upload to Firebase Storage if available and bucket is configured
         file_url = None
-        if FIREBASE_AVAILABLE and STORAGE_CLIENT:
+        storage_bucket = os.environ.get('FIREBASE_STORAGE_BUCKET')
+        if FIREBASE_AVAILABLE and STORAGE_CLIENT and storage_bucket:
             try:
                 blob = STORAGE_CLIENT.blob(f"manuscripts/{project_id}/{file.filename}")
                 blob.upload_from_file(file, content_type=file.content_type)
@@ -323,7 +338,10 @@ def upload_manuscript(project_id):
                 file_url = blob.public_url
                 logger.info(f"Uploaded to Firebase: {file_url}")
             except Exception as e:
-                logger.error(f"Firebase upload failed: {e}")
+                # Firebase upload failure is non-critical - file is saved locally
+                logger.warning(f"Firebase upload failed (using local storage): {e}")
+        elif FIREBASE_AVAILABLE and not storage_bucket:
+            logger.warning("Firebase Storage bucket not configured (FIREBASE_STORAGE_BUCKET env var not set). Using local storage only.")
         
         # Also save locally as backup
         upload_dir = Path(tempfile.gettempdir()) / 'bookforge' / project_id
@@ -370,7 +388,23 @@ Return JSON:
   "genreGuess": "genre",
   "qualityScore": 75
 }}"""
-                            response = GEMINI_CLIENT.generate_content(prompt)
+                            try:
+                                response = GEMINI_CLIENT.generate_content(prompt)
+                            except Exception as gemini_error:
+                                # Try fallback to gemini-pro if gemini-1.5-pro fails
+                                error_str = str(gemini_error)
+                                if ('not found' in error_str.lower() or 'NotFound' in type(gemini_error).__name__) and 'gemini-1.5-pro' in error_str:
+                                    logger.warning(f"[UPLOAD] gemini-1.5-pro not available in background, trying gemini-pro fallback")
+                                    try:
+                                        fallback_client = genai.GenerativeModel('gemini-pro')
+                                        response = fallback_client.generate_content(prompt)
+                                        global GEMINI_CLIENT
+                                        GEMINI_CLIENT = fallback_client
+                                    except Exception:
+                                        raise gemini_error
+                                else:
+                                    raise
+                            
                             analysis_text = response.text
                             import json
                             import re
@@ -520,7 +554,23 @@ Provide a concise description (2-3 sentences) of visual elements that would work
 
 Return ONLY the description text, no additional commentary or formatting."""
                     
-                    analysis_response = GEMINI_CLIENT.generate_content(analysis_prompt)
+                    try:
+                        analysis_response = GEMINI_CLIENT.generate_content(analysis_prompt)
+                    except Exception as gemini_error:
+                        # Try fallback to gemini-pro if gemini-1.5-pro fails
+                        error_str = str(gemini_error)
+                        if ('not found' in error_str.lower() or 'NotFound' in type(gemini_error).__name__) and 'gemini-1.5-pro' in error_str:
+                            logger.warning(f"[COVER] gemini-1.5-pro not available, trying gemini-pro fallback")
+                            try:
+                                fallback_client = genai.GenerativeModel('gemini-pro')
+                                analysis_response = fallback_client.generate_content(analysis_prompt)
+                                global GEMINI_CLIENT
+                                GEMINI_CLIENT = fallback_client
+                            except Exception:
+                                raise gemini_error
+                        else:
+                            raise
+                    
                     # Handle different response formats
                     if hasattr(analysis_response, 'text'):
                         ai_suggested_description = analysis_response.text.strip()
@@ -856,7 +906,7 @@ Be specific, constructive, and professional in your feedback. Focus on actionabl
 """
         
         # Call Gemini API with improved error handling
-        logger.info(f"Analyzing manuscript for project {project_id} with Gemini 1.5 Pro")
+        logger.info(f"Analyzing manuscript for project {project_id}")
         logger.info(f"Content length: {len(content)} characters, sample length: {len(content_sample)} characters")
         
         import json
@@ -893,8 +943,47 @@ Be specific, constructive, and professional in your feedback. Focus on actionabl
             logger.info(f"Gemini response received, length: {len(analysis_text)} characters")
             
         except Exception as gemini_error:
-            # Check if it's an API key error
+            # Check if it's a model not found error - try fallback to gemini-pro
             error_str = str(gemini_error)
+            error_type = type(gemini_error).__name__
+            
+            # Try fallback to gemini-pro if gemini-1.5-pro fails
+            if ('not found' in error_str.lower() or 'NotFound' in error_type) and 'gemini-1.5-pro' in error_str:
+                logger.warning(f"gemini-1.5-pro not available, trying gemini-pro fallback: {error_str}")
+                try:
+                    # Create fallback client with gemini-pro
+                    fallback_client = genai.GenerativeModel('gemini-pro')
+                    response = fallback_client.generate_content(prompt)
+                    # Update global client for future calls
+                    global GEMINI_CLIENT
+                    GEMINI_CLIENT = fallback_client
+                    logger.info("Successfully using gemini-pro as fallback")
+                    
+                    # Handle response
+                    try:
+                        analysis_text = response.text
+                    except AttributeError:
+                        if hasattr(response, 'candidates') and len(response.candidates) > 0:
+                            candidate = response.candidates[0]
+                            if hasattr(candidate, 'content'):
+                                if hasattr(candidate.content, 'parts') and len(candidate.content.parts) > 0:
+                                    analysis_text = candidate.content.parts[0].text
+                                elif hasattr(candidate.content, 'text'):
+                                    analysis_text = candidate.content.text
+                        if not analysis_text:
+                            analysis_text = str(response)
+                    
+                    if analysis_text and len(analysis_text.strip()) > 0:
+                        logger.info(f"Gemini-pro response received, length: {len(analysis_text)} characters")
+                    else:
+                        raise ValueError("Empty response from Gemini API fallback")
+                except Exception as fallback_error:
+                    logger.error(f"Fallback to gemini-pro also failed: {fallback_error}")
+                    # Continue to error handling below
+                    gemini_error = fallback_error
+                    error_str = str(fallback_error)
+            
+            # Check if it's an API key error
             if 'API key' in error_str or 'API_KEY' in error_str or 'API key not valid' in error_str:
                 logger.error(f"Gemini API key error: {error_str}")
                 return jsonify({
@@ -913,28 +1002,31 @@ Be specific, constructive, and professional in your feedback. Focus on actionabl
                         'estimatedPages': round(len(content.split()) / 250)
                     }
                 }), 500
-            logger.error(f"Gemini API call failed: {str(gemini_error)}")
-            logger.error(f"Error type: {type(gemini_error).__name__}")
-            import traceback
-            logger.error(f"Traceback: {traceback.format_exc()}")
-            # Return error with detailed info for debugging
-            error_message = str(gemini_error)
-            return jsonify({
-                'error': f'Gemini API error: {error_message}',
-                'errorType': type(gemini_error).__name__,
-                'overallScore': 70,
-                'strengths': ['Manuscript uploaded successfully'],
-                'improvementAreas': [f'AI analysis unavailable: {error_message[:100]}'],
-                'genreGuess': 'Fiction',
-                'readingLevel': 'Adult',
-                'pacing': 'Balanced',
-                'structure': 'Basic structure detected',
-                'recommendations': [],
-                'statistics': {
-                    'wordCount': len(content.split()),
-                    'estimatedPages': round(len(content.split()) / 250)
-                }
-            }), 500
+            
+            # If we still don't have analysis_text, return error
+            if not analysis_text:
+                logger.error(f"Gemini API call failed: {str(gemini_error)}")
+                logger.error(f"Error type: {type(gemini_error).__name__}")
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
+                # Return error with detailed info for debugging
+                error_message = str(gemini_error)
+                return jsonify({
+                    'error': f'Gemini API error: {error_message}',
+                    'errorType': type(gemini_error).__name__,
+                    'overallScore': 70,
+                    'strengths': ['Manuscript uploaded successfully'],
+                    'improvementAreas': [f'AI analysis unavailable: {error_message[:100]}'],
+                    'genreGuess': 'Fiction',
+                    'readingLevel': 'Adult',
+                    'pacing': 'Balanced',
+                    'structure': 'Basic structure detected',
+                    'recommendations': [],
+                    'statistics': {
+                        'wordCount': len(content.split()),
+                        'estimatedPages': round(len(content.split()) / 250)
+                    }
+                }), 500
         
         # Ensure analysis_text is defined
         if not analysis_text:
@@ -1176,6 +1268,132 @@ def build_book(project_id):
         logger.error(f"Error building book: {str(e)}")
         logger.error(f"Traceback: {error_trace}")
         return jsonify({'error': f'Failed to build book: {str(e)}', 'trace': error_trace[-500:]}), 500
+
+@app.route('/api/projects/<project_id>/preview', methods=['GET', 'POST'])
+def preview_book(project_id):
+    """Generate a preview PDF of the book"""
+    # Flask-CORS handles OPTIONS automatically
+    try:
+        logger.info(f"[PREVIEW] Starting preview for project {project_id}")
+        
+        if project_id not in projects:
+            logger.error(f"[PREVIEW] Project {project_id} not found")
+            response = jsonify({'error': 'Project not found'})
+            response.headers.add('Access-Control-Allow-Origin', '*')
+            return response, 404
+        
+        project = projects[project_id]
+        
+        # Get manuscript path or URL
+        manuscript_path = project.get('manuscript_path')
+        manuscript_url = project.get('manuscript_url')
+        
+        if not manuscript_path and not manuscript_url:
+            logger.error(f"[PREVIEW] No manuscript found")
+            response = jsonify({'error': 'No manuscript found. Please upload a manuscript first.'})
+            response.headers.add('Access-Control-Allow-Origin', '*')
+            return response, 400
+        
+        # Get config from request body (POST) or project (GET)
+        if request.method == 'POST':
+            request_data = request.get_json(force=True, silent=True) or {}
+            config_data = request_data.get('config', project.get('config', {}))
+            # Update project config with latest values
+            project['config'] = {**project.get('config', {}), **config_data}
+        else:
+            config_data = project.get('config', {})
+        
+        # Convert camelCase to snake_case for BuildConfig
+        def convert_to_snake_case(key):
+            key_map = {
+                'fontFamily': 'font_family',
+                'fontSize': 'font_size_pt',
+                'lineHeight': 'line_height',
+                'outerMargin': 'outer_margin_in',
+                'topMargin': 'top_margin_in',
+                'bottomMargin': 'bottom_margin_in',
+                'gutter': 'gutter_in',
+                'chapterStartsRight': 'chapter_starts_right',
+                'headerStyle': 'header_style',
+                'includeToc': 'include_toc',
+                'includeDedication': 'include_dedication',
+                'dedicationText': 'dedication_text',
+                'includeCopyright': 'include_copyright',
+                'copyrightYear': 'copyright_year',
+                'copyrightHolder': 'copyright_holder',
+                'includeAck': 'include_ack',
+                'ackText': 'ack_text',
+                'includeAboutAuthor': 'include_about_author',
+                'aboutAuthorText': 'about_author_text',
+                'sceneBreak': 'scene_break'
+            }
+            return key_map.get(key, key)
+        
+        # Convert config keys
+        converted_config = {convert_to_snake_case(k): v for k, v in config_data.items()}
+        
+        # Ensure required fields have defaults
+        converted_config.setdefault('title', project.get('title', 'Untitled Book'))
+        converted_config.setdefault('subtitle', '')
+        converted_config.setdefault('author', project.get('author', ''))
+        
+        # Create BuildConfig
+        if not WEASYPRINT_AVAILABLE:
+            return jsonify({'error': 'WeasyPrint not available. Cannot generate preview.'}), 500
+        
+        config = BuildConfig(**converted_config)
+        
+        # Prepare manuscript file
+        temp_dir = Path(tempfile.gettempdir()) / 'bookforge' / project_id
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        
+        if manuscript_path and Path(manuscript_path).exists():
+            manuscript_file = Path(manuscript_path)
+        elif manuscript_url:
+            response = requests.get(manuscript_url)
+            response.raise_for_status()
+            filename = manuscript_url.split('/')[-1].split('?')[0] or 'manuscript.txt'
+            manuscript_file = temp_dir / filename
+            manuscript_file.write_bytes(response.content)
+        else:
+            response = jsonify({'error': 'Manuscript not found'})
+            response.headers.add('Access-Control-Allow-Origin', '*')
+            return response, 400
+        
+        # Build preview (PDF only)
+        preview_dir = temp_dir / 'preview'
+        preview_dir.mkdir(exist_ok=True)
+        
+        outputs = build_outputs(config, manuscript_file, preview_dir)
+        
+        # Return PDF preview
+        if 'pdf' not in outputs:
+            response = jsonify({'error': 'Failed to generate preview PDF'})
+            response.headers.add('Access-Control-Allow-Origin', '*')
+            return response, 500
+        
+        pdf_path = outputs['pdf']
+        if not Path(pdf_path).exists():
+            response = jsonify({'error': 'Preview PDF not found'})
+            response.headers.add('Access-Control-Allow-Origin', '*')
+            return response, 404
+        
+        logger.info(f"[PREVIEW] Preview generated successfully: {pdf_path}")
+        response = send_file(
+            pdf_path,
+            mimetype='application/pdf',
+            download_name=f"{project['title']}_preview.pdf"
+        )
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        return response
+        
+    except Exception as e:
+        logger.error(f"[PREVIEW] Error generating preview: {str(e)}")
+        import traceback
+        logger.error(f"[PREVIEW] Traceback: {traceback.format_exc()}")
+        response = jsonify({'error': f'Failed to generate preview: {str(e)}'})
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        return response, 500
 
 @app.route('/api/projects/<project_id>/download/<format>', methods=['GET'])
 def download_book(project_id, format):

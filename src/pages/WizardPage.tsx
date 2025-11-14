@@ -9,13 +9,15 @@ import {
   ChevronLeft,
   Upload,
   CheckCircle,
-  Image
+  Image,
+  Eye
 } from 'lucide-react'
 import { FileUpload } from '../components/FileUpload'
 import { CoverGenerator } from '../components/CoverGenerator'
 import { SuggestionsPanel } from '../components/SuggestionsPanel'
 import { ManuscriptReview } from '../components/ManuscriptReview'
 import { ProcessingStatus } from '../components/ProcessingStatus'
+import { PDFViewer } from '../components/PDFViewer'
 import { toast } from 'react-hot-toast'
 import { 
   createProject, 
@@ -25,6 +27,7 @@ import {
   downloadBook,
   downloadFile,
   debugProject,
+  previewBook,
   type BookConfig,
   type BookProject
 } from '../lib/api'
@@ -56,6 +59,9 @@ export function WizardPage() {
   const [processingSteps, setProcessingSteps] = useState<Array<{id: string, label: string, status: 'pending' | 'processing' | 'completed' | 'error', message?: string}>>([])
   const [currentProcessingStep, setCurrentProcessingStep] = useState<string | undefined>()
   const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [previewBlob, setPreviewBlob] = useState<Blob | null>(null)
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false)
+  const [isLoadingPreview, setIsLoadingPreview] = useState(false)
   
   const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm<BookConfig>({
     defaultValues: {
@@ -103,6 +109,7 @@ export function WizardPage() {
       { id: 'extract', label: 'Extracting content from manuscript', status: 'processing' as const, message: `Reading ${file.name}...` },
       { id: 'analyze', label: 'Analyzing manuscript content', status: 'pending' as const },
       { id: 'suggestions', label: 'Generating book suggestions', status: 'pending' as const },
+      { id: 'preview', label: 'Generating preview', status: 'pending' as const },
     ]
     setProcessingSteps(analysisSteps)
     setCurrentProcessingStep('extract')
@@ -118,19 +125,21 @@ export function WizardPage() {
         { id: 'extract', label: 'Extracting content from manuscript', status: 'completed' as const },
         { id: 'analyze', label: 'Analyzing manuscript content', status: 'processing' as const, message: 'Reviewing structure and content...' },
         { id: 'suggestions', label: 'Generating book suggestions', status: 'pending' as const },
+        { id: 'preview', label: 'Generating preview', status: 'pending' as const },
       ])
       setCurrentProcessingStep('analyze')
       
       await new Promise(resolve => setTimeout(resolve, 200))
       const generatedSuggestions = await generateBookSuggestions(file, content)
       
-      // Complete all steps
+      // Update step
       setProcessingSteps([
         { id: 'extract', label: 'Extracting content from manuscript', status: 'completed' as const },
         { id: 'analyze', label: 'Analyzing manuscript content', status: 'completed' as const },
         { id: 'suggestions', label: 'Generating book suggestions', status: 'completed' as const },
+        { id: 'preview', label: 'Generating preview', status: 'processing' as const, message: 'Creating PDF preview...' },
       ])
-      setCurrentProcessingStep(undefined)
+      setCurrentProcessingStep('preview')
       
       setSuggestions(generatedSuggestions)
       
@@ -142,6 +151,58 @@ export function WizardPage() {
       
       // Auto-apply trim size suggestion
       setValue('trim', generatedSuggestions.trimSize as any)
+      
+      // Automatically create project and generate preview
+      try {
+        const formData = watch()
+        const projectData = {
+          ...formData,
+          title: formData.title || generatedSuggestions.title[0] || file.name.replace(/\.[^/.]+$/, '') || 'Untitled Book',
+          author: formData.author || 'Unknown Author'
+        }
+        
+        // Create project
+        const project = await createProject(projectData)
+        setCurrentProject(project)
+        
+        // Upload manuscript
+        await uploadManuscript(project.id, file)
+        
+        // Update form with defaults if they were empty
+        if (!formData.title) {
+          setValue('title', projectData.title)
+        }
+        if (!formData.author) {
+          setValue('author', projectData.author)
+        }
+        
+        // Generate preview automatically
+        const previewBlobData = await previewBook(project.id, projectData)
+        setPreviewBlob(previewBlobData)
+        setIsPreviewOpen(true)
+        
+        // Complete preview step
+        setProcessingSteps([
+          { id: 'extract', label: 'Extracting content from manuscript', status: 'completed' as const },
+          { id: 'analyze', label: 'Analyzing manuscript content', status: 'completed' as const },
+          { id: 'suggestions', label: 'Generating book suggestions', status: 'completed' as const },
+          { id: 'preview', label: 'Generating preview', status: 'completed' as const },
+        ])
+        setCurrentProcessingStep(undefined)
+        
+        toast.success('Preview generated! Check the preview window.')
+      } catch (previewError: any) {
+        console.error('Preview generation error:', previewError)
+        // Don't fail the whole upload if preview fails
+        setProcessingSteps([
+          { id: 'extract', label: 'Extracting content from manuscript', status: 'completed' as const },
+          { id: 'analyze', label: 'Analyzing manuscript content', status: 'completed' as const },
+          { id: 'suggestions', label: 'Generating book suggestions', status: 'completed' as const },
+          { id: 'preview', label: 'Generating preview', status: 'error' as const, message: previewError.message || 'Preview generation failed' },
+        ])
+        toast.error('Preview generation failed, but file uploaded successfully')
+      }
+      
       toast.success('Suggestions generated! Check the recommendations below.')
     } catch (error) {
       console.error('Error processing file:', error)
@@ -153,7 +214,7 @@ export function WizardPage() {
       setTimeout(() => {
         setProcessingSteps([])
         setCurrentProcessingStep(undefined)
-      }, 2000)
+      }, 3000)
     }
   }
 
@@ -383,16 +444,105 @@ export function WizardPage() {
     }
   }
 
+  const loadPreview = async () => {
+    if (!currentProject?.id) {
+      toast.error('Please create a project first')
+      return
+    }
+
+    if (!uploadedFile) {
+      toast.error('Please upload a manuscript first')
+      return
+    }
+
+    try {
+      setIsLoadingPreview(true)
+      
+      // Get current form values and send to preview endpoint
+      // This ensures preview reflects current settings
+      const formData = watch()
+      
+      const blob = await previewBook(currentProject.id, formData)
+      setPreviewBlob(blob)
+      setIsPreviewOpen(true)
+      toast.success('Preview loaded successfully')
+    } catch (error: any) {
+      console.error('Failed to load preview:', error)
+      toast.error(error.message || 'Failed to load preview')
+    } finally {
+      setIsLoadingPreview(false)
+    }
+  }
+
+  const PreviewButton = () => {
+    // Show preview button if manuscript is uploaded
+    // If no project exists yet, we'll create one on the fly when preview is clicked
+    if (!uploadedFile) {
+      return null
+    }
+
+    return (
+      <button
+        onClick={async () => {
+          try {
+            setIsLoadingPreview(true)
+            
+            // If no project exists, create one with current form values or defaults
+            if (!currentProject) {
+              const formData = watch()
+              
+              // Use defaults if title/author not filled in yet
+              const projectData = {
+                ...formData,
+                title: formData.title || uploadedFile.name.replace(/\.[^/.]+$/, '') || 'Untitled Book',
+                author: formData.author || 'Unknown Author'
+              }
+              
+              const project = await createProject(projectData)
+              setCurrentProject(project)
+              
+              // Upload manuscript
+              await uploadManuscript(project.id, uploadedFile)
+              
+              // Update form with defaults if they were empty
+              if (!formData.title) {
+                setValue('title', projectData.title)
+              }
+              if (!formData.author) {
+                setValue('author', projectData.author)
+              }
+            }
+            
+            // Now load preview (will use current form values)
+            await loadPreview()
+          } catch (error: any) {
+            console.error('Preview error:', error)
+            toast.error(error.message || 'Failed to generate preview')
+            setIsLoadingPreview(false)
+          }
+        }}
+        disabled={isLoadingPreview}
+        className="btn-outline flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        <Eye className="w-4 h-4" />
+        <span>{isLoadingPreview ? 'Loading Preview...' : 'Preview PDF'}</span>
+      </button>
+    )
+  }
+
   const renderStepContent = () => {
     switch (currentStep) {
       case 0:
         return (
           <div className="space-y-6">
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">Add Your Manuscript</h3>
-              <p className="text-gray-600">
-                Upload a file or type/paste your content directly. Supports: .docx, .doc, .odt, .rtf, .md, .txt, .html, .htm
-              </p>
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">Add Your Manuscript</h3>
+                <p className="text-gray-600">
+                  Upload a file or type/paste your content directly. Supports: .docx, .doc, .odt, .rtf, .md, .txt, .html, .htm
+                </p>
+              </div>
+              <PreviewButton />
             </div>
             <FileUpload 
               onFileSelect={handleFileUpload} 
@@ -438,9 +588,12 @@ export function WizardPage() {
       case 1:
         return (
           <div className="space-y-6">
+            <div className="flex items-center justify-between">
             <div>
               <h3 className="text-lg font-semibold text-gray-900 mb-2">Book Details</h3>
               <p className="text-gray-600">Tell us about your book</p>
+              </div>
+              <PreviewButton />
             </div>
             
             {/* Show suggestions if available */}
@@ -570,6 +723,13 @@ export function WizardPage() {
       case 2:
         return (
           <div className="space-y-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">Book Cover</h3>
+                <p className="text-gray-600">Generate a cover for your book</p>
+              </div>
+              <PreviewButton />
+            </div>
             {currentProject ? (
               <CoverGenerator
                 projectId={currentProject.id}
@@ -596,9 +756,12 @@ export function WizardPage() {
       case 3:
         return (
           <div className="space-y-6">
+            <div className="flex items-center justify-between">
             <div>
               <h3 className="text-lg font-semibold text-gray-900 mb-2">Formatting Options</h3>
               <p className="text-gray-600">Customize the appearance of your book</p>
+              </div>
+              <PreviewButton />
             </div>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -682,9 +845,12 @@ export function WizardPage() {
       case 4:
         return (
           <div className="space-y-6">
+            <div className="flex items-center justify-between">
             <div>
               <h3 className="text-lg font-semibold text-gray-900 mb-2">Preview Your Book</h3>
               <p className="text-gray-600">Review your book preview before generating the final output</p>
+              </div>
+              <PreviewButton />
             </div>
             
             {/* Book Information Summary */}
@@ -792,11 +958,14 @@ export function WizardPage() {
         
         return (
           <div className="space-y-6">
+            <div className="flex items-center justify-between">
                         <div>
               <h3 className="text-lg font-semibold text-gray-900 mb-2">Generate Your Book</h3>
               <p className="text-gray-600">
                 {isComplete ? 'Your book has been generated! Download your files below.' : 'Review your settings and generate the final book'}
               </p>
+              </div>
+              <PreviewButton />
             </div>
             
             {/* Show processing status during generation */}
@@ -1004,7 +1173,7 @@ export function WizardPage() {
         </AnimatePresence>
 
         {/* Navigation */}
-        <div className="flex justify-between mt-8 pt-6 border-t border-gray-200">
+        <div className="flex justify-between items-center mt-8 pt-6 border-t border-gray-200">
           <button
             onClick={prevStep}
             disabled={currentStep === 0}
@@ -1014,6 +1183,8 @@ export function WizardPage() {
             <span>Previous</span>
           </button>
 
+          <div className="flex items-center space-x-3">
+            <PreviewButton />
           {currentStep === steps.length - 1 ? (
             <button
               onClick={handleSubmit(onSubmit)}
@@ -1034,6 +1205,23 @@ export function WizardPage() {
           )}
         </div>
       </div>
+      </div>
+
+      {/* PDF Preview Modal */}
+      {previewBlob && (
+        <PDFViewer
+          blob={previewBlob}
+          filename={`${watch('title') || 'Book'}_preview.pdf`}
+          isOpen={isPreviewOpen}
+          onClose={() => {
+            setIsPreviewOpen(false)
+            // Clean up blob after a delay
+            setTimeout(() => {
+              setPreviewBlob(null)
+            }, 300)
+          }}
+        />
+      )}
     </div>
   )
 }
