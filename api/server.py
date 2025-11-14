@@ -1269,10 +1269,16 @@ def build_book(project_id):
         logger.error(f"Traceback: {error_trace}")
         return jsonify({'error': f'Failed to build book: {str(e)}', 'trace': error_trace[-500:]}), 500
 
-@app.route('/api/projects/<project_id>/preview', methods=['GET', 'POST'])
+@app.route('/api/projects/<project_id>/preview', methods=['GET', 'POST', 'OPTIONS'])
 def preview_book(project_id):
     """Generate a preview PDF of the book"""
-    # Flask-CORS handles OPTIONS automatically
+    # Handle OPTIONS preflight request
+    if request.method == 'OPTIONS':
+        response = jsonify({'status': 'ok'})
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        response.headers.add('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+        return response, 200
     try:
         logger.info(f"[PREVIEW] Starting preview for project {project_id}")
         
