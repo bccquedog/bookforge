@@ -285,6 +285,7 @@ def debug_project(project_id):
 @app.route('/api/projects/<project_id>/upload', methods=['POST'])
 def upload_manuscript(project_id):
     """Upload manuscript file for a project"""
+    global GEMINI_CLIENT
     try:
         logger.info(f"[UPLOAD] Starting upload for project {project_id}")
         
@@ -398,7 +399,6 @@ Return JSON:
                                     try:
                                         fallback_client = genai.GenerativeModel('gemini-pro')
                                         response = fallback_client.generate_content(prompt)
-                                        global GEMINI_CLIENT
                                         GEMINI_CLIENT = fallback_client
                                     except Exception:
                                         raise gemini_error
@@ -508,6 +508,7 @@ def extract_text():
 @app.route('/api/projects/<project_id>/generate-cover', methods=['POST'])
 def generate_cover(project_id):
     """Generate a book cover using OpenAI DALL-E"""
+    global GEMINI_CLIENT
     try:
         if project_id not in projects:
             return jsonify({'error': 'Project not found'}), 404
@@ -564,7 +565,6 @@ Return ONLY the description text, no additional commentary or formatting."""
                             try:
                                 fallback_client = genai.GenerativeModel('gemini-pro')
                                 analysis_response = fallback_client.generate_content(analysis_prompt)
-                                global GEMINI_CLIENT
                                 GEMINI_CLIENT = fallback_client
                             except Exception:
                                 raise gemini_error
@@ -814,6 +814,7 @@ def get_cover(project_id):
 @app.route('/api/projects/<project_id>/analyze', methods=['POST'])
 def analyze_manuscript(project_id):
     """Analyze manuscript using Gemini AI"""
+    global GEMINI_CLIENT
     try:
         if project_id not in projects:
             return jsonify({'error': 'Project not found'}), 404
@@ -955,7 +956,6 @@ Be specific, constructive, and professional in your feedback. Focus on actionabl
                     fallback_client = genai.GenerativeModel('gemini-pro')
                     response = fallback_client.generate_content(prompt)
                     # Update global client for future calls
-                    global GEMINI_CLIENT
                     GEMINI_CLIENT = fallback_client
                     logger.info("Successfully using gemini-pro as fallback")
                     
