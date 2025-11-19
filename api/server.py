@@ -1331,8 +1331,12 @@ def preview_book(project_id):
                 'ackText': 'ack_text',
                 'includeAboutAuthor': 'include_about_author',
                 'aboutAuthorText': 'about_author_text',
-                'sceneBreak': 'scene_break'
+                'sceneBreak': 'scene_break',
+                'targetPlatform': 'target_platform',
+                'imprint': 'imprint',
+                'isbn': 'isbn'
             }
+            # If key is already snake_case, return as-is
             return key_map.get(key, key)
         
         # Convert config keys

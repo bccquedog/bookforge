@@ -542,9 +542,18 @@ def convert_to_html(manuscript: Path) -> str:
     ext = manuscript.suffix.lower()
     if have_pandoc():
         try:
+            # Determine input format
+            if ext == ".docx":
+                from_format = "docx"
+            elif ext == ".md":
+                from_format = "markdown"
+            else:
+                # For .txt files, use markdown format (Pandoc doesn't support "plain")
+                from_format = "markdown"
+
             cmd = [
                 "pandoc", str(manuscript),
-                "--from", "docx" if ext == ".docx" else ("markdown" if ext == ".md" else "plain"),
+                "--from", from_format,
                 "--to", "html5",
                 "--section-divs",
                 "--standalone",
