@@ -541,19 +541,24 @@ def extract_body_content(html: str) -> str:
 def convert_to_html(manuscript: Path) -> str:
     ext = manuscript.suffix.lower()
     if have_pandoc():
-        cmd = [
-            "pandoc", str(manuscript),
-            "--from", "docx" if ext == ".docx" else ("markdown" if ext == ".md" else "plain"),
-            "--to", "html5",
-            "--section-divs",
-            "--standalone",
-        ]
-        html = subprocess.check_output(cmd, text=True)
-        # Post-process to ensure chapter headings are properly detected for txt files
-        if ext == ".txt":
-            html = detect_and_convert_chapters_in_html(html)
-        # Extract just the body content (template will wrap it)
-        return extract_body_content(html)
+        try:
+            cmd = [
+                "pandoc", str(manuscript),
+                "--from", "docx" if ext == ".docx" else ("markdown" if ext == ".md" else "plain"),
+                "--to", "html5",
+                "--section-divs",
+                "--standalone",
+            ]
+            html = subprocess.check_output(cmd, text=True, timeout=60)
+            # Post-process to ensure chapter headings are properly detected for txt files
+            if ext == ".txt":
+                html = detect_and_convert_chapters_in_html(html)
+            # Extract just the body content (template will wrap it)
+            return extract_body_content(html)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+            # Pandoc failed or timed out, fall back to simple converters
+            print(f"Pandoc failed ({e}), using fallback converter for {ext}")
+            pass  # Fall through to fallback converters below
     # Fallback simple converters
     if ext == ".md":
         html = markdown_to_html_simple(Path(manuscript).read_text(encoding="utf-8"))
