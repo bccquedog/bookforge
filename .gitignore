@@ -68,3 +68,5 @@ service-account*.json
 # Backup files
 .bak
 .bak2
+.env.vercel
+.eslintrc.cjs

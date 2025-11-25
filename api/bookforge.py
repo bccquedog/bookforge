@@ -1022,22 +1022,22 @@ def postprocess_body_html(html: str, cfg: BuildConfig) -> str:
     # Otherwise, wrap h1 sections as chapter sections
     if '<section class="chapter"' not in html:
         # Wrap standalone h1 headings with section tags for EPUB chapter splitting
-        # Match h1 that aren't already in a section
-        html = re.sub(
-            r'(?<!<section[^>]*>)(<h1[^>]*>.*?</h1>)',
-            r'<section class="chapter">\1',
-            html,
-            flags=re.DOTALL
-        )
+        # Use a simple approach: wrap each h1 in a section tag
+        # First, find all h1 tags and wrap them
+        def wrap_h1_in_section(match):
+            return f'<section class="chapter">{match.group(0)}'
+
+        html = re.sub(r'(<h1[^>]*>.*?</h1>)', wrap_h1_in_section, html, flags=re.DOTALL)
+
         # Close sections before the next h1 or at the end
-        html = re.sub(r'(</h1>)(?!</section>)(?=<h1)', r'\1</section>', html)
+        html = re.sub(r'(</h1>)(?=.*?<section class="chapter">)', r'\1</section>', html, flags=re.DOTALL)
         # Also wrap in div for PDF styling compatibility
         html = re.sub(r"(<h1[^>]*>)", r'<div class="chapter-open">\1', html)
         html = re.sub(r"(</h1>)", r"\1</div>", html)
     else:
         # We have section tags, just add the chapter-open div for PDF styling
         html = re.sub(r'(<section class="chapter"[^>]*>\s*)(<h1[^>]*>)', r'\1<div class="chapter-open">\2', html)
-        html = re.sub(r'(</h1>)(?=\s*</section>)', r'\1</div>', html)
+        html = re.sub(r'(</h1>)(\s*</section>)', r'\1</div>\2', html)
 
     # Add IDs to headings for TOC (if they don't already have IDs)
     def idify(match):
