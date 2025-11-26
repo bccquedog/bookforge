@@ -1000,39 +1000,73 @@ export function WizardPage() {
 
             {/* Completion/Download Section */}
             {isComplete && availableFormats.length > 0 && currentProject && (
-              <div className="bg-green-50 border-2 border-green-300 rounded-lg p-6">                                                                              
-                <h4 className="font-semibold text-green-900 mb-4 flex items-center text-lg">                                                                            
+              <div className="bg-green-50 border-2 border-green-300 rounded-lg p-6">
+                <h4 className="font-semibold text-green-900 mb-2 flex items-center text-lg">
                   <CheckCircle className="w-6 h-6 mr-2" />
                   Book Generated Successfully!
                 </h4>
-                <p className="text-green-700 mb-6">Your book has been formatted and is ready for download in the following formats:</p>                                                  
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <p className="text-green-700 mb-6">
+                  Your book has been formatted and is ready for download. Click any format below to download:
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
                   {availableFormats.map((format) => (
                     <button
                       key={format}
                       onClick={async () => {
                         try {
-                          console.log(`Downloading ${format} for project ${currentProject.id}`)                                                                 
-                          const blob = await downloadBook(currentProject.id, format)                                                                            
-                          console.log(`Received blob:`, blob.type, blob.size, 'bytes')                                                                          
-                          downloadFile(blob, `${currentProject.title || 'book'}.${format}`)                                                                               
-                          toast.success(`${format.toUpperCase()} downloaded successfully!`)                                                                     
+                          console.log(`Downloading ${format} for project ${currentProject.id}`)
+                          const blob = await downloadBook(currentProject.id, format)
+                          console.log(`Received blob:`, blob.type, blob.size, 'bytes')
+                          downloadFile(blob, `${currentProject.title || 'book'}.${format}`)
+                          toast.success(`${format.toUpperCase()} downloaded successfully!`)
                         } catch (error: any) {
                           console.error(`Failed to download ${format}:`, error)
-                          toast.error(`Failed to download ${format.toUpperCase()}: ${error.message || 'Unknown error'}`)                                                           
+                          toast.error(`Failed to download ${format.toUpperCase()}: ${error.message || 'Unknown error'}`)
                         }
                       }}
-                      className="bg-white hover:bg-green-50 border-2 border-green-300 rounded-lg p-4 flex flex-col items-center space-y-2 transition-colors"
+                      className="bg-white hover:bg-green-100 border-2 border-green-400 hover:border-green-600 rounded-lg p-6 flex items-center space-x-4 transition-all shadow-sm hover:shadow-md"
                     >
-                      <Download className="w-6 h-6 text-green-600" />
-                      <span className="font-semibold text-green-900">{format.toUpperCase()}</span>
-                      <span className="text-xs text-gray-600">
-                        {format === 'pdf' ? 'Print-ready' : format === 'epub' ? 'E-reader' : 'Editable'}
-                      </span>
+                      <div className="flex-shrink-0 w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
+                        <Download className="w-6 h-6 text-green-600" />
+                      </div>
+                      <div className="flex-1 text-left">
+                        <div className="font-semibold text-green-900 text-lg">
+                          Download {format.toUpperCase()}
+                        </div>
+                        <div className="text-sm text-gray-600">
+                          {format === 'pdf' ? 'Print-ready PDF for KDP/IngramSpark' :
+                           format === 'epub' ? 'E-reader format for Kindle/iBooks' :
+                           format === 'docx' ? 'Editable Microsoft Word document' :
+                           format === 'html' ? 'Web-ready HTML file' : 'Ready to download'}
+                        </div>
+                      </div>
                     </button>
                   ))}
                 </div>
-                <div className="mt-6 pt-6 border-t border-green-200">
+
+                <div className="bg-white rounded-lg p-4 mb-6">
+                  <h5 className="font-semibold text-gray-900 mb-2">Next Steps:</h5>
+                  <ul className="text-sm text-gray-700 space-y-2">
+                    <li className="flex items-start">
+                      <span className="text-green-600 mr-2">1.</span>
+                      <span>Download your preferred format(s) above</span>
+                    </li>
+                    <li className="flex items-start">
+                      <span className="text-green-600 mr-2">2.</span>
+                      <span>Review the PDF to ensure everything looks correct</span>
+                    </li>
+                    <li className="flex items-start">
+                      <span className="text-green-600 mr-2">3.</span>
+                      <span>Upload to KDP, IngramSpark, or your publishing platform</span>
+                    </li>
+                    <li className="flex items-start">
+                      <span className="text-green-600 mr-2">4.</span>
+                      <span>Optional: Generate a cover or create another book</span>
+                    </li>
+                  </ul>
+                </div>
+
+                <div className="flex items-center justify-between pt-4 border-t border-green-200">
                   <button
                     onClick={() => {
                       setBuildResult(null)
@@ -1040,7 +1074,7 @@ export function WizardPage() {
                       setCurrentProject(null)
                       setUploadedFile(null)
                     }}
-                    className="text-sm text-green-700 hover:text-green-900 underline"
+                    className="text-sm text-green-700 hover:text-green-900 font-medium underline"
                   >
                     Create Another Book
                   </button>
@@ -1186,14 +1220,16 @@ export function WizardPage() {
           <div className="flex items-center space-x-3">
             <PreviewButton />
           {currentStep === steps.length - 1 ? (
-            <button
-              onClick={handleSubmit(onSubmit)}
-              disabled={isProcessing || !uploadedFile}
-              className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
-            >
-              <Download className="w-4 h-4" />
-              <span>{isProcessing ? 'Processing...' : 'Generate Book'}</span>
-            </button>
+            !isComplete && (
+              <button
+                onClick={handleSubmit(onSubmit)}
+                disabled={isProcessing || !uploadedFile}
+                className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+              >
+                <Download className="w-4 h-4" />
+                <span>{isProcessing ? 'Processing...' : 'Generate Book'}</span>
+              </button>
+            )
           ) : (
             <button
               onClick={nextStep}
