@@ -313,119 +313,145 @@ def extract_text_quick(path: Path) -> str:
 # Build pipeline
 # ----------------------
 
+def detect_front_matter(line: str) -> bool:
+    """Detect if a line is front matter (dedication, acknowledgments, etc.)"""
+    line_stripped = line.strip()
+    if not line_stripped or len(line_stripped) > 100:
+        return False
+
+    line_upper = line_stripped.upper()
+
+    # Front matter patterns
+    front_matter_keywords = [
+        r'^DEDICATION$',
+        r'^ACKNOWLEDGMENTS?$',
+        r'^ACKNOWLEDGEMENTS?$',
+        r'^PREFACE$',
+        r'^FOREWORD$',
+        r'^INTRODUCTION$',
+        r'^ABOUT THE AUTHOR$',
+        r'^ALSO BY',
+        r'^COPYRIGHT',
+        r'^TABLE OF CONTENTS$',
+        r'^CONTENTS$',
+    ]
+
+    for pattern in front_matter_keywords:
+        if re.match(pattern, line_upper):
+            return True
+
+    return False
+
 def detect_chapter_heading(line: str) -> bool:
     """Detect if a line is a chapter heading"""
     line_stripped = line.strip()
     if not line_stripped or len(line_stripped) > 200:  # Headings should be short
         return False
-    
+
     line_upper = line_stripped.upper()
-    
-    # Common chapter patterns (expanded to catch more variations)
+
+    # Common chapter patterns (more comprehensive)
     patterns = [
-        r'^CHAPTER\s+[A-Z]+[\w\s]*:?',  # "CHAPTER ONE", "CHAPTER TWENTY-ONE:"
-        r'^CHAPTER\s+\d+',  # "CHAPTER 1", "CHAPTER 21"
-        r'^CHAPTER\s+[A-Z]+[\w\s]*:.*',  # "CHAPTER ONE: The Invitation"
-        r'^CHAPTER\s+\d+:.*',  # "CHAPTER 1: Title"
+        r'^CHAPTER\s+[A-Z]+[\w\s\-]*:',  # "CHAPTER ONE: Title"
+        r'^CHAPTER\s+\d+:',  # "CHAPTER 1: Title"
+        r'^CHAPTER\s+[A-Z]+[\w\s\-]*$',  # "CHAPTER ONE"
+        r'^CHAPTER\s+\d+$',  # "CHAPTER 1"
         r'^PART\s+[IVX]+',  # "PART I", "PART II"
         r'^PART\s+\d+',  # "PART 1", "PART 2"
         r'^PROLOGUE',
         r'^EPILOGUE',
-        r'^CHAPTER\s+ONE',  # "Chapter One"
-        r'^CHAPTER\s+TWO',  # "Chapter Two"
-        r'^CHAPTER\s+THREE',  # "Chapter Three"
-        r'^CHAPTER\s+FOUR',  # "Chapter Four"
-        r'^CHAPTER\s+FIVE',  # "Chapter Five"
-        r'^CHAPTER\s+SIX',  # "Chapter Six"
-        r'^CHAPTER\s+SEVEN',  # "Chapter Seven"
-        r'^CHAPTER\s+EIGHT',  # "Chapter Eight"
-        r'^CHAPTER\s+NINE',  # "Chapter Nine"
-        r'^CHAPTER\s+TEN',  # "Chapter Ten"
-        r'^CHAPTER\s+ELEVEN',  # "Chapter Eleven"
-        r'^CHAPTER\s+TWELVE',  # "Chapter Twelve"
-        r'^CHAPTER\s+THIRTEEN',  # "Chapter Thirteen"
-        r'^CHAPTER\s+FOURTEEN',  # "Chapter Fourteen"
-        r'^CHAPTER\s+FIFTEEN',  # "Chapter Fifteen"
-        r'^CHAPTER\s+SIXTEEN',  # "Chapter Sixteen"
-        r'^CHAPTER\s+SEVENTEEN',  # "Chapter Seventeen"
-        r'^CHAPTER\s+EIGHTEEN',  # "Chapter Eighteen"
-        r'^CHAPTER\s+NINETEEN',  # "Chapter Nineteen"
-        r'^CHAPTER\s+TWENTY',  # "Chapter Twenty"
-        r'^CHAPTER\s+TWENTY-ONE',  # "Chapter Twenty-One"
-        r'^CHAPTER\s+TWENTY-TWO',  # "Chapter Twenty-Two"
-        r'^CHAPTER\s+TWENTY-THREE',  # "Chapter Twenty-Three"
-        r'^CHAPTER\s+TWENTY-FOUR',  # "Chapter Twenty-Four"
-        r'^CHAPTER\s+TWENTY-FIVE',  # "Chapter Twenty-Five"
-        r'^CHAPTER\s+TWENTY-SIX',  # "Chapter Twenty-Six"
-        r'^CHAPTER\s+TWENTY-SEVEN',  # "Chapter Twenty-Seven"
-        r'^CHAPTER\s+TWENTY-EIGHT',  # "Chapter Twenty-Eight"
-        r'^CHAPTER\s+TWENTY-NINE',  # "Chapter Twenty-Nine"
-        r'^CHAPTER\s+THIRTY',  # "Chapter Thirty"
+        r'^INTERLUDE',
     ]
-    
+
     for pattern in patterns:
         if re.match(pattern, line_upper):
             return True
-    
-    # Also check for "Chapter" followed by number word or number, optionally with colon and title
-    if re.match(r'^CHAPTER\s+[A-Z]+[\w\s-]*:?', line_upper):
-        return True
-    
+
     return False
 
 def txt_to_html_with_chapters(text: str) -> str:
-    """Convert plain text to HTML with chapter detection"""
+    """Convert plain text to HTML with chapter detection and proper structure"""
     lines = text.split('\n')
     html_lines = ['<html><body>']
     in_paragraph = False
     chapter_count = 0
+    section_count = 0
     skip_next = False
-    
+    blank_line_count = 0
+
+    # Detect if the first non-empty line is a title (for cover page)
+    title_line = None
+    author_line = None
+    for idx, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped and not title_line:
+            title_line = stripped
+        elif stripped and title_line and not author_line and idx < 10:
+            # Check if next line might be an author line (starts with "by" or is a name)
+            if stripped.lower().startswith('by ') or (len(stripped.split()) <= 4 and not stripped.endswith('.')):
+                author_line = stripped
+                break
+        elif title_line:
+            break
+
     for i, line in enumerate(lines):
         if skip_next:
             skip_next = False
             continue
-            
+
         stripped = line.strip()
-        
-        # Detect chapter headings
-        if detect_chapter_heading(line) and len(stripped) < 200:  # Heading should be short
-            # Close previous chapter section if open
+
+        # Count consecutive blank lines (for section breaks)
+        if not stripped:
+            blank_line_count += 1
+            if in_paragraph:
+                html_lines.append('</p>')
+                in_paragraph = False
+            # 3+ blank lines = section break ornament
+            if blank_line_count >= 3 and chapter_count > 0:
+                html_lines.append('<div class="hr-ornament"></div>')
+                blank_line_count = 0
+            continue
+        else:
+            blank_line_count = 0
+
+        # Detect front matter (Dedication, Acknowledgments, etc.)
+        if detect_front_matter(line):
+            # Close any open sections
             if chapter_count > 0:
                 html_lines.append('</section>')
-            
+            if in_paragraph:
+                html_lines.append('</p>')
+                in_paragraph = False
+
+            section_count += 1
+            heading_id = f"front-matter-{section_count}"
+            html_lines.append(f'<section class="front-matter-section" id="{heading_id}">')
+            html_lines.append(f'<h2 class="section-title">{html_escape(stripped)}</h2>')
+            continue
+
+        # Detect chapter headings
+        if detect_chapter_heading(line):
+            # Close previous section if open
+            if chapter_count > 0 or section_count > 0:
+                html_lines.append('</section>')
+
             # Close previous paragraph if open
             if in_paragraph:
                 html_lines.append('</p>')
                 in_paragraph = False
-            
-            # Check if next line is also part of the heading (subtitle)
-            heading_text = stripped
-            if i + 1 < len(lines) and lines[i + 1].strip() and not detect_chapter_heading(lines[i + 1]):
-                next_line = lines[i + 1].strip()
-                if len(next_line) < 100 and not next_line.endswith('.'):
-                    heading_text += ': ' + next_line
-                    skip_next = True  # Skip next line
-            
+
             # Add chapter heading with proper structure
             chapter_count += 1
             heading_id = f"chapter-{chapter_count}"
             html_lines.append(f'<section class="chapter" id="{heading_id}">')
-            html_lines.append(f'<h1 class="chapter-title">{html_escape(heading_text)}</h1>')
+            html_lines.append(f'<h1 class="chapter-title">{html_escape(stripped)}</h1>')
             in_paragraph = False
             continue
-        
-        # Empty line - break paragraph
-        if not stripped:
-            if in_paragraph:
-                html_lines.append('</p>')
-                in_paragraph = False
-            # Close chapter if we have one open and we've had some content
-            continue
-        
-        # Regular text
+
+        # Regular text - add to paragraph
         escaped = html_escape(stripped)
-        
+
         # Start new paragraph if needed
         if not in_paragraph:
             html_lines.append('<p>')
@@ -433,17 +459,17 @@ def txt_to_html_with_chapters(text: str) -> str:
         else:
             # Add space between lines in same paragraph
             html_lines.append(' ')
-        
+
         html_lines.append(escaped)
-    
+
     # Close any open tags
     if in_paragraph:
         html_lines.append('</p>')
-    
-    # Close any open chapter sections
-    if chapter_count > 0:
+
+    # Close any open chapter/section
+    if chapter_count > 0 or section_count > 0:
         html_lines.append('</section>')
-    
+
     html_lines.append('</body></html>')
     return '\n'.join(html_lines)
 
@@ -728,12 +754,32 @@ HTML_TEMPLATE = Template(r"""
       margin-bottom: 1rem;
       font-size: 1.5em;
     }
-    
+
+    /* Front matter sections from manuscript */
+    .front-matter-section {
+      margin: 3rem 0;
+      page-break-before: always;
+    }
+
+    .front-matter-section h2.section-title {
+      font-size: 1.5em;
+      text-align: center;
+      margin: 2rem 0 1.5rem 0;
+      font-weight: normal;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: #333;
+    }
+
+    .front-matter-section p:first-of-type {
+      text-indent: 0;
+    }
+
     /* Body matter styling */
     .body-matter {
       margin: 3rem 0;
     }
-    
+
     .body-matter section.chapter {
       margin: 3rem 0;
       page-break-before: always;
@@ -923,6 +969,19 @@ p { text-align: justify; widows: 2; orphans: 2; }
 p + p { text-indent: 1.2em; margin-top: 0; }
 .chapter-open p { text-indent: 0; }
 
+/* Front matter sections */
+.front-matter-section { page-break-before: always; margin-bottom: 2em; }
+.front-matter-section h2.section-title {
+  font-size: 1.5em;
+  text-align: center;
+  margin: 2em 0 1.5em 0;
+  font-weight: normal;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+.front-matter-section p:first-of-type { text-indent: 0; }
+
+/* Scene breaks */
 .hr-ornament { text-align: center; margin: 1.2em 0; }
 .hr-ornament::after { content: "{{ scene_break }}"; letter-spacing: 0.35em; }
 
