@@ -518,11 +518,26 @@ def generate_cover(project_id):
         
         project = projects[project_id]
         data = request.get_json()
-        
+
         # Get book details
         title = project.get('title', 'Untitled Book')
         author = project.get('author', '')
         subtitle = project.get('config', {}).get('subtitle', '')
+
+        # Extract actual title from manuscript if project title is generic/filename
+        manuscript_content = project.get('manuscript_content', '')
+        if manuscript_content and (not title or title == 'Untitled Book' or len(title) < 10):
+            # Try to extract title from first few lines of manuscript
+            lines = manuscript_content.split('\n')
+            for line in lines[:10]:
+                stripped = line.strip()
+                # Look for a title-like line (not too long, not empty, capitalized)
+                if stripped and len(stripped) > 5 and len(stripped) < 100 and not stripped.lower().startswith('by '):
+                    # Check if it looks like a title (mostly capital letters or title case)
+                    if stripped[0].isupper() and not stripped.endswith('.'):
+                        title = stripped
+                        logger.info(f"[COVER] Extracted title from manuscript: {title}")
+                        break
         
                 # Get cover generation options
         cover_style = data.get('style', 'modern')
@@ -532,62 +547,79 @@ def generate_cover(project_id):
         visual_style = data.get('visualStyle', 'illustrated')  # illustrated, photographic, mixed
         mood = data.get('mood', 'neutral')  # neutral, energetic, calm, dramatic, mysterious, warm
         
-        # Auto-generate cover description from manuscript if not provided and manuscript is available
-        if not cover_description and GEMINI_AVAILABLE and GEMINI_CLIENT:
-            manuscript_content = project.get('manuscript_content', '')
-            if manuscript_content:
-                try:
-                    # Use Gemini to analyze manuscript and suggest cover visual elements
-                    analysis_prompt = f"""Based on this book manuscript excerpt, suggest specific visual elements, scenes, or imagery that would be appropriate for a book cover.
+        # Auto-generate cover description from manuscript if not provided
+        if not cover_description and manuscript_content:
+            try:
+                # Extract key elements from manuscript for cover description
+                excerpt = manuscript_content[:3000]  # Use first 3000 chars
+
+                # Try Gemini first if available
+                if GEMINI_AVAILABLE and GEMINI_CLIENT:
+                    try:
+                        analysis_prompt = f"""Based on this book manuscript excerpt, suggest specific visual elements, scenes, or imagery for a book cover.
 
 Book Title: {title}
-Book Subtitle: {subtitle if subtitle else 'None'}
 Author: {author}
 
-Manuscript excerpt (first 2000 characters):
-{manuscript_content[:2000]}
+Manuscript excerpt:
+{excerpt}
 
-Provide a concise description (2-3 sentences) of visual elements that would work well for the cover, such as:
-- Key scenes or settings
-- Important objects or symbols
+Provide a concise 2-3 sentence description of visual elements for the cover including:
+- Key scenes, settings, or imagery
 - Mood and atmosphere
-- Color suggestions
+- Genre-appropriate visual style
 
-Return ONLY the description text, no additional commentary or formatting."""
-                    
-                    try:
+Return ONLY the description, no commentary."""
+
                         analysis_response = GEMINI_CLIENT.generate_content(analysis_prompt)
+
+                        # Handle response
+                        if hasattr(analysis_response, 'text'):
+                            ai_description = analysis_response.text.strip()
+                        elif hasattr(analysis_response, 'candidates') and len(analysis_response.candidates) > 0:
+                            candidate = analysis_response.candidates[0]
+                            if hasattr(candidate, 'content') and hasattr(candidate.content, 'parts'):
+                                ai_description = candidate.content.parts[0].text.strip()
+                            else:
+                                ai_description = str(candidate).strip()
+                        else:
+                            ai_description = str(analysis_response).strip()
+
+                        if ai_description and len(ai_description) > 10:
+                            cover_description = ai_description
+                            logger.info(f"[COVER] AI-generated description: {cover_description[:100]}...")
                     except Exception as gemini_error:
-                        # Try fallback to gemini-pro if gemini-1.5-pro fails
-                        error_str = str(gemini_error)
-                        if ('not found' in error_str.lower() or 'NotFound' in type(gemini_error).__name__) and 'gemini-1.5-pro' in error_str:
-                            logger.warning(f"[COVER] gemini-1.5-pro not available, trying gemini-pro fallback")
-                            try:
-                                fallback_client = genai.GenerativeModel('gemini-pro')
-                                analysis_response = fallback_client.generate_content(analysis_prompt)
-                                GEMINI_CLIENT = fallback_client
-                            except Exception:
-                                raise gemini_error
-                        else:
-                            raise
-                    
-                    # Handle different response formats
-                    if hasattr(analysis_response, 'text'):
-                        ai_suggested_description = analysis_response.text.strip()
-                    elif hasattr(analysis_response, 'candidates') and len(analysis_response.candidates) > 0:
-                        candidate = analysis_response.candidates[0]
-                        if hasattr(candidate, 'content') and hasattr(candidate.content, 'parts'):
-                            ai_suggested_description = candidate.content.parts[0].text.strip()
-                        else:
-                            ai_suggested_description = str(candidate).strip()
-                    else:
-                        ai_suggested_description = str(analysis_response).strip()
-                    if ai_suggested_description:
-                        cover_description = ai_suggested_description
-                        logger.info(f"[COVER] Auto-generated description from manuscript: {cover_description[:100]}...")
-                except Exception as e:
-                    logger.warning(f"[COVER] Failed to generate description from manuscript: {e}")
-                    # Continue without auto-generated description
+                        logger.warning(f"[COVER] Gemini analysis failed: {str(gemini_error)[:100]}")
+
+                # Fallback: Extract context from manuscript directly
+                if not cover_description:
+                    # Simple keyword extraction for genre/mood
+                    excerpt_lower = excerpt.lower()
+
+                    # Detect genre/themes
+                    is_mystery = any(word in excerpt_lower for word in ['murder', 'detective', 'crime', 'mystery', 'investigation', 'killer', 'dead', 'body'])
+                    is_romance = any(word in excerpt_lower for word in ['love', 'romance', 'heart', 'kiss', 'passion'])
+                    is_thriller = any(word in excerpt_lower for word in ['danger', 'threat', 'chase', 'escape', 'trap', 'revenge'])
+                    is_scifi = any(word in excerpt_lower for word in ['space', 'alien', 'future', 'robot', 'technology', 'galaxy'])
+                    is_fantasy = any(word in excerpt_lower for word in ['magic', 'dragon', 'wizard', 'kingdom', 'sword', 'quest'])
+
+                    # Build description based on detected elements
+                    description_parts = []
+                    if is_mystery or is_thriller:
+                        description_parts.append("Dark, atmospheric urban setting with dramatic shadows and tension")
+                    if is_romance:
+                        description_parts.append("Intimate, emotional atmosphere with warm tones")
+                    if is_scifi:
+                        description_parts.append("Futuristic cityscape with high-tech elements")
+                    if is_fantasy:
+                        description_parts.append("Epic fantasy landscape with magical elements")
+
+                    if description_parts:
+                        cover_description = ". ".join(description_parts)
+                        logger.info(f"[COVER] Fallback description from keywords: {cover_description}")
+
+            except Exception as e:
+                logger.warning(f"[COVER] Failed to analyze manuscript: {e}")
         
         # Build the prompt for DALL-E with enhanced structure
         prompt_parts = []
@@ -716,9 +748,11 @@ Return ONLY the description text, no additional commentary or formatting."""
         
         # Professional book cover requirements
         prompt += ". High-quality professional book cover design suitable for print publishing. "
-        prompt += "The design should have a clear focal point, excellent composition, and professional typography area at the top for title and author. "
-        prompt += "The cover should be visually striking and appropriate for bookstore display. "
-        prompt += "Do not include any text overlay - leave space for title and author name to be added later."
+        prompt += "The design should have a clear focal point, excellent composition, and striking visual appeal appropriate for bookstore display. "
+        prompt += f"Include the book title '{title}' prominently at the top in bold, readable typography. "
+        if author:
+            prompt += f"Include the author name '{author}' in smaller text below the title or at the bottom. "
+        prompt += "The text should be clear, legible, and professionally designed as part of the cover artwork."
         
         # Generate image using OpenAI DALL-E
         api_key = os.environ.get('OPENAI_API_KEY')
