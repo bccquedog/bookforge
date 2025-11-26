@@ -135,11 +135,14 @@ export const deleteProject = async (projectId: string): Promise<void> => {
 }
 
 export const generateCover = async (
-  projectId: string, 
+  projectId: string,
   options: CoverGenerationOptions
 ): Promise<CoverGenerationResponse> => {
   try {
-    const response = await api.post(`/api/projects/${projectId}/generate-cover`, options)
+    // DALL-E 3 can take up to 60 seconds to generate an image
+    const response = await api.post(`/api/projects/${projectId}/generate-cover`, options, {
+      timeout: 90000, // 90 seconds for AI image generation
+    })
     return response.data
   } catch (error: any) {
     console.error('Failed to generate cover:', error)
@@ -172,12 +175,15 @@ export const debugProject = async (projectId: string): Promise<any> => {
 
 export const previewBook = async (projectId: string, config?: Partial<BookConfig>): Promise<Blob> => {
   try {
-    const response = config 
+    // PDF generation can take longer for large manuscripts
+    const response = config
       ? await api.post(`/api/projects/${projectId}/preview`, { config }, {
-          responseType: 'blob'
+          responseType: 'blob',
+          timeout: 120000, // 2 minutes for PDF generation
         })
       : await api.get(`/api/projects/${projectId}/preview`, {
-          responseType: 'blob'
+          responseType: 'blob',
+          timeout: 120000, // 2 minutes for PDF generation
         })
     return response.data
   } catch (error: any) {
