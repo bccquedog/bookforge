@@ -46,6 +46,14 @@ try:
 except Exception:
     docx = None
 
+# Professional DOCX generator
+try:
+    from docx_generator import generate_docx_from_manuscript, DOCX_AVAILABLE as PROFESSIONAL_DOCX_AVAILABLE
+except ImportError:
+    PROFESSIONAL_DOCX_AVAILABLE = False
+    def generate_docx_from_manuscript(*args, **kwargs):
+        raise NotImplementedError("Professional DOCX generator not available")
+
 # WeasyPrint for PDF
 from weasyprint import HTML, CSS
 
@@ -1058,12 +1066,47 @@ def build_outputs(cfg: BuildConfig, manuscript: Path, outdir: Path) -> Dict[str,
         ], check=True)
         outputs["epub"] = epub_path
 
-    # DOCX via pandoc (optional)
-    if cfg.docx and have_pandoc():
-        print("Building DOCX via Pandoc...")
+    # DOCX via professional generator (preferred) or pandoc (fallback)
+    if cfg.docx:
         docx_path = outdir / f"{slugify(cfg.title)}.docx"
-        subprocess.run(["pandoc", str(html_path), "-o", str(docx_path)], check=True)
-        outputs["docx"] = docx_path
+        if PROFESSIONAL_DOCX_AVAILABLE:
+            print("Building DOCX with professional formatting...")
+            try:
+                # Build config dict for DOCX generator
+                docx_config = {
+                    'title': cfg.title,
+                    'subtitle': cfg.subtitle,
+                    'author': cfg.author,
+                    'trim': cfg.trim,
+                    'top_margin_in': cfg.top_margin_in,
+                    'bottom_margin_in': cfg.bottom_margin_in,
+                    'outer_margin_in': cfg.outer_margin_in,
+                    'gutter_in': cfg.gutter_in,
+                    'font_family': cfg.font_family,
+                    'font_size_pt': cfg.font_size_pt,
+                    'line_height': cfg.line_height,
+                    'include_copyright': cfg.include_copyright,
+                    'copyright_year': cfg.copyright_year,
+                    'copyright_holder': cfg.copyright_holder,
+                    'include_dedication': cfg.include_dedication,
+                    'dedication_text': cfg.dedication_text,
+                    'include_about_author': cfg.include_about_author,
+                    'about_author_text': cfg.about_author_text,
+                    'scene_break': cfg.scene_break,
+                }
+                generate_docx_from_manuscript(manuscript, docx_path, docx_config)
+                outputs["docx"] = docx_path
+            except Exception as e:
+                print(f"Professional DOCX generation failed: {e}")
+                # Fall back to Pandoc
+                if have_pandoc():
+                    print("Falling back to Pandoc for DOCX...")
+                    subprocess.run(["pandoc", str(html_path), "-o", str(docx_path)], check=True)
+                    outputs["docx"] = docx_path
+        elif have_pandoc():
+            print("Building DOCX via Pandoc...")
+            subprocess.run(["pandoc", str(html_path), "-o", str(docx_path)], check=True)
+            outputs["docx"] = docx_path
 
     print("Done. Outputs:")
     for k, p in outputs.items():

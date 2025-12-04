@@ -163,6 +163,27 @@ export const getCover = async (projectId: string): Promise<string> => {
   }
 }
 
+export const uploadCover = async (
+  projectId: string,
+  file: File
+): Promise<CoverGenerationResponse> => {
+  try {
+    const formData = new FormData()
+    formData.append('file', file)
+    
+    const response = await api.post(`/api/projects/${projectId}/upload-cover`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+      timeout: 60000, // 60 seconds for file uploads
+    })
+    return response.data
+  } catch (error: any) {
+    console.error('Failed to upload cover:', error)
+    throw new Error(`Failed to upload cover: ${error.response?.data?.message || error.message}`)
+  }
+}
+
 export const debugProject = async (projectId: string): Promise<any> => {
   try {
     const response = await api.get(`/api/projects/${projectId}/debug`)

@@ -530,6 +530,9 @@ export function WizardPage() {
     )
   }
 
+  // Calculate completion status (used in multiple places)
+  const isComplete = buildResult?.formats && buildResult.formats.length > 0
+
   const renderStepContent = () => {
     switch (currentStep) {
       case 0:
@@ -952,8 +955,7 @@ export function WizardPage() {
         )
       
             case 5:
-        // Check if build is complete (either from buildResult or project output_paths)
-        const isComplete = buildResult?.formats && buildResult.formats.length > 0
+        // Get available formats (either from buildResult or project)
         const availableFormats = buildResult?.formats || currentProject?.formats || []
         
         return (

@@ -845,6 +845,92 @@ def get_cover(project_id):
         logger.error(f"Error getting cover: {str(e)}")
         return jsonify({'error': 'Failed to get cover'}), 500
 
+@app.route('/api/projects/<project_id>/upload-cover', methods=['POST'])
+def upload_cover(project_id):
+    """Upload a custom cover image for a project"""
+    try:
+        if project_id not in projects:
+            return jsonify({'error': 'Project not found'}), 404
+        
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file provided'}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+        
+        # Validate file type (images only)
+        allowed_extensions = {'.png', '.jpg', '.jpeg', '.gif', '.webp'}
+        file_ext = Path(file.filename).suffix.lower()
+        if file_ext not in allowed_extensions:
+            return jsonify({'error': f'Invalid file type. Allowed: {", ".join(allowed_extensions)}'}), 400
+        
+        project = projects[project_id]
+        
+        # Save cover image
+        project_dir = Path(tempfile.gettempdir()) / 'bookforge' / project_id
+        project_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Use original extension or default to png
+        cover_filename = f'cover{file_ext}' if file_ext else 'cover.png'
+        cover_path = project_dir / cover_filename
+        
+        # Save file temporarily to check size
+        file.save(cover_path)
+        
+        # Validate file size (max 10MB)
+        file_size = cover_path.stat().st_size
+        if file_size > 10 * 1024 * 1024:  # 10MB
+            cover_path.unlink()  # Delete the file if too large
+            return jsonify({'error': 'File too large. Maximum size is 10MB'}), 400
+        
+        # Upload to Firebase Storage if available
+        cover_url = None
+        storage_bucket = os.environ.get('FIREBASE_STORAGE_BUCKET')
+        if FIREBASE_AVAILABLE and STORAGE_CLIENT and storage_bucket:
+            try:
+                blob = STORAGE_CLIENT.blob(f"covers/{project_id}/{cover_filename}")
+                file.seek(0)
+                blob.upload_from_file(file, content_type=file.content_type)
+                blob.make_public()
+                cover_url = blob.public_url
+                logger.info(f"Uploaded cover to Firebase: {cover_url}")
+            except Exception as e:
+                logger.warning(f"Firebase upload failed (using local storage): {e}")
+        
+        # Store cover info in project
+        project['cover_path'] = str(cover_path)
+        if cover_url:
+            project['cover_url'] = cover_url
+        
+        # Convert to base64 for frontend preview
+        with open(cover_path, 'rb') as f:
+            img_data = f.read()
+        cover_base64 = base64.b64encode(img_data).decode('utf-8')
+        
+        # Determine MIME type from extension
+        mime_types = {
+            '.png': 'image/png',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.gif': 'image/gif',
+            '.webp': 'image/webp'
+        }
+        mime_type = mime_types.get(file_ext, 'image/png')
+        
+        logger.info(f"Uploaded cover for project {project_id}: {cover_filename}")
+        return jsonify({
+            'message': 'Cover uploaded successfully',
+            'cover_url': f'data:{mime_type};base64,{cover_base64}',
+            'cover_path': str(cover_path)
+        })
+        
+    except Exception as e:
+        logger.error(f"Error uploading cover: {str(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return jsonify({'error': f'Failed to upload cover: {str(e)}'}), 500
+
 @app.route('/api/projects/<project_id>/analyze', methods=['POST'])
 def analyze_manuscript(project_id):
     """Analyze manuscript using Gemini AI"""
