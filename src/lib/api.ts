@@ -8,6 +8,12 @@ export const api = axios.create({
   timeout: 30000, // 30 seconds for file uploads
 })
 
+const apiErrorMessage = (error: any) =>
+  error?.response?.data?.message ||
+  error?.response?.data?.error ||
+  error?.message ||
+  'Unknown error'
+
 export interface BookProject {
   id: string
   title: string
@@ -63,7 +69,7 @@ export const createProject = async (config: Partial<BookConfig>): Promise<BookPr
     return response.data
   } catch (error: any) {
     console.error('Failed to create project:', error)
-    throw new Error(`Failed to create project: ${error.response?.data?.message || error.message}`)
+    throw new Error(`Failed to create project: ${apiErrorMessage(error)}`)
   }
 }
 
@@ -79,7 +85,7 @@ export const uploadManuscript = async (projectId: string, file: File): Promise<v
     })
   } catch (error: any) {
     console.error('Failed to upload manuscript:', error)
-    throw new Error(`Failed to upload manuscript: ${error.response?.data?.message || error.message}`)
+    throw new Error(`Failed to upload manuscript: ${apiErrorMessage(error)}`)
   }
 }
 
@@ -89,7 +95,7 @@ export const buildBook = async (projectId: string): Promise<{ formats: string[] 
     return response.data
   } catch (error: any) {
     console.error('Failed to build book:', error)
-    throw new Error(`Failed to build book: ${error.response?.data?.message || error.message}`)
+    throw new Error(`Failed to build book: ${apiErrorMessage(error)}`)
   }
 }
 
@@ -99,7 +105,7 @@ export const getProject = async (projectId: string): Promise<BookProject> => {
     return response.data
   } catch (error: any) {
     console.error('Failed to get project:', error)
-    throw new Error(`Failed to get project: ${error.response?.data?.message || error.message}`)
+    throw new Error(`Failed to get project: ${apiErrorMessage(error)}`)
   }
 }
 
@@ -109,7 +115,7 @@ export const getProjects = async (): Promise<BookProject[]> => {
     return response.data
   } catch (error: any) {
     console.error('Failed to get projects:', error)
-    throw new Error(`Failed to get projects: ${error.response?.data?.message || error.message}`)
+    throw new Error(`Failed to get projects: ${apiErrorMessage(error)}`)
   }
 }
 
@@ -121,7 +127,7 @@ export const downloadBook = async (projectId: string, format: string): Promise<B
     return response.data
   } catch (error: any) {
     console.error('Failed to download book:', error)
-    throw new Error(`Failed to download book: ${error.response?.data?.message || error.message}`)
+    throw new Error(`Failed to download book: ${apiErrorMessage(error)}`)
   }
 }
 
@@ -130,7 +136,7 @@ export const deleteProject = async (projectId: string): Promise<void> => {
     await api.delete(`/api/projects/${projectId}`)
   } catch (error: any) {
     console.error('Failed to delete project:', error)
-    throw new Error(`Failed to delete project: ${error.response?.data?.message || error.message}`)
+    throw new Error(`Failed to delete project: ${apiErrorMessage(error)}`)
   }
 }
 
@@ -146,7 +152,7 @@ export const generateCover = async (
     return response.data
   } catch (error: any) {
     console.error('Failed to generate cover:', error)
-    throw new Error(`Failed to generate cover: ${error.response?.data?.message || error.message}`)
+    throw new Error(`Failed to generate cover: ${apiErrorMessage(error)}`)
   }
 }
 
@@ -159,7 +165,7 @@ export const getCover = async (projectId: string): Promise<string> => {
     return URL.createObjectURL(blob)
   } catch (error: any) {
     console.error('Failed to get cover:', error)
-    throw new Error(`Failed to get cover: ${error.response?.data?.message || error.message}`)
+    throw new Error(`Failed to get cover: ${apiErrorMessage(error)}`)
   }
 }
 
@@ -180,7 +186,7 @@ export const uploadCover = async (
     return response.data
   } catch (error: any) {
     console.error('Failed to upload cover:', error)
-    throw new Error(`Failed to upload cover: ${error.response?.data?.message || error.message}`)
+    throw new Error(`Failed to upload cover: ${apiErrorMessage(error)}`)
   }
 }
 
@@ -190,7 +196,7 @@ export const debugProject = async (projectId: string): Promise<any> => {
     return response.data
   } catch (error: any) {
     console.error('Failed to get debug info:', error)
-    throw new Error(`Failed to get debug info: ${error.response?.data?.message || error.message}`)
+    throw new Error(`Failed to get debug info: ${apiErrorMessage(error)}`)
   }
 }
 
@@ -209,7 +215,7 @@ export const previewBook = async (projectId: string, config?: Partial<BookConfig
     return response.data
   } catch (error: any) {
     console.error('Failed to get preview:', error)
-    throw new Error(`Failed to get preview: ${error.response?.data?.message || error.message}`)
+    throw new Error(`Failed to get preview: ${apiErrorMessage(error)}`)
   }
 }
 

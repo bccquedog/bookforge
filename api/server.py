@@ -7,12 +7,14 @@ A Flask-based API server for handling book formatting requests
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 import os
+import sys
 import tempfile
 import uuid
 from pathlib import Path
 import logging
 import base64
 import requests
+import traceback
 from io import BytesIO
 
 app = Flask(__name__)
@@ -29,14 +31,19 @@ logger = logging.getLogger(__name__)
 
 # Import the original BookForge functionality (with error handling)
 WEASYPRINT_AVAILABLE = False
+WEASYPRINT_VERSION = None
+PYDYF_VERSION = None
 try:
     from bookforge import BuildConfig, build_outputs, convert_to_html
+    import weasyprint
+    import pydyf
     WEASYPRINT_AVAILABLE = True
-    logger.info("BookForge PDF generation available")
+    WEASYPRINT_VERSION = getattr(weasyprint, "__version__", None)
+    PYDYF_VERSION = getattr(pydyf, "__version__", None)
+    logger.info(f"BookForge PDF generation available (WeasyPrint {WEASYPRINT_VERSION}, pydyf {PYDYF_VERSION})")
 except Exception as e:
     logger.error(f"Could not import bookforge: {e}")
     logger.error(f"Import error type: {type(e).__name__}")
-    import traceback
     logger.error(f"Traceback: {traceback.format_exc()}")
     # Create minimal stubs for the types
     class BuildConfig:
@@ -177,7 +184,10 @@ def health_check():
         'gemini_available': GEMINI_AVAILABLE,
         'firebase_available': FIREBASE_AVAILABLE,
         'openai_available': OPENAI_AVAILABLE,
-        'weasyprint_available': WEASYPRINT_AVAILABLE
+        'weasyprint_available': WEASYPRINT_AVAILABLE,
+        'weasyprint_version': WEASYPRINT_VERSION,
+        'pydyf_version': PYDYF_VERSION,
+        'python_version': sys.version
     })
 
 @app.route('/api/projects', methods=['POST'])
@@ -1518,10 +1528,19 @@ def preview_book(project_id):
         return response
         
     except Exception as e:
-        logger.error(f"[PREVIEW] Error generating preview: {str(e)}")
-        import traceback
+        error_message = str(e)
+        error_type = type(e).__name__
+        # Common failure when pydyf is an older version than WeasyPrint expects
+        if isinstance(e, AttributeError) and 'transform' in error_message:
+            error_message = ("PDF renderer dependency mismatch (WeasyPrint / pydyf). "
+                             "Reinstall dependencies with pydyf>=0.10.0.")
+            error_type = "PDF_RENDERER_DEPENDENCY"
+        logger.error(f"[PREVIEW] Error generating preview: {error_message}")
         logger.error(f"[PREVIEW] Traceback: {traceback.format_exc()}")
-        response = jsonify({'error': f'Failed to generate preview: {str(e)}'})
+        response = jsonify({
+            'error': f'Failed to generate preview: {error_message}',
+            'errorType': error_type
+        })
         response.headers.add('Access-Control-Allow-Origin', '*')
         return response, 500
 
